@@ -1,0 +1,194 @@
+diff -ruN intraday_int/intraday_ai_assistant_integrated/.env.example intraday_patchwork/.env.example
+--- intraday_int/intraday_ai_assistant_integrated/.env.example	2026-05-26 05:28:56.000000000 +0000
++++ intraday_patchwork/.env.example	2026-05-26 08:02:47.661003468 +0000
+@@ -45,7 +45,9 @@
+ CORE_SYMBOLS=SPY,QQQ,IWM,DIA,NVDA,AMD,AVGO,QCOM,INTC,ARM,MU,TSM,ASML,MSFT,AAPL,AMZN,GOOGL,META,TSLA,CRM,ORCL,NOW,PLTR,SNOW,XOM,CVX,COP,SLB,JNJ,PEP,KO,COST,WMT
+ INDEX_SYMBOLS=SPY,QQQ,IWM,DIA
+ SECTOR_ETFS=XLK,SMH,SOXX,XLC,XLY,XLF,XLE,XLV,XLP,XLU,XLI,XRT
+-NEWS_RSS_URLS=https://www.investing.com/rss/news_25.rss,https://feeds.finance.yahoo.com/rss/2.0/headline?s=NVDA&region=US&lang=en-US
++# General feeds are listed here. Per-symbol Yahoo Finance RSS feeds are generated from NEWS_QUERY_SYMBOLS below.
++NEWS_RSS_URLS=https://www.investing.com/rss/news_25.rss
++NEWS_QUERY_SYMBOLS=NVDA,AMD,AVGO,QCOM,INTC,ARM,MU,TSM,ASML,MSFT,AAPL,AMZN,GOOGL,META,TSLA,CRM,ORCL,NOW,PLTR,SNOW,XOM,CVX,COP,SLB,JNJ,PEP,KO,COST,WMT
+ 
+ # =========================
+ # Realtime monitor initial watchlist
+diff -ruN intraday_int/intraday_ai_assistant_integrated/app/config.py intraday_patchwork/app/config.py
+--- intraday_int/intraday_ai_assistant_integrated/app/config.py	2026-05-26 05:28:56.000000000 +0000
++++ intraday_patchwork/app/config.py	2026-05-26 08:02:47.658599266 +0000
+@@ -53,6 +53,7 @@
+     index_symbols: List[str]
+     sector_etfs: List[str]
+     news_rss_urls: List[str]
++    news_query_symbols: List[str]
+     max_a_tier: int
+     max_b_tier: int
+ 
+@@ -99,6 +100,7 @@
+         index_symbols=_split_csv(os.getenv('INDEX_SYMBOLS')),
+         sector_etfs=_split_csv(os.getenv('SECTOR_ETFS')),
+         news_rss_urls=_split_urls(os.getenv('NEWS_RSS_URLS')),
++        news_query_symbols=_split_csv(os.getenv('NEWS_QUERY_SYMBOLS')),
+         max_a_tier=int(os.getenv('MAX_A_TIER', '5')),
+         max_b_tier=int(os.getenv('MAX_B_TIER', '8')),
+         monitor_admin_url=os.getenv('MONITOR_ADMIN_URL', os.getenv('ADMIN_API_URL', 'http://127.0.0.1:8765')).strip(),
+diff -ruN intraday_int/intraday_ai_assistant_integrated/app/data_sources/news_rss_client.py intraday_patchwork/app/data_sources/news_rss_client.py
+--- intraday_int/intraday_ai_assistant_integrated/app/data_sources/news_rss_client.py	2026-05-11 02:53:14.000000000 +0000
++++ intraday_patchwork/app/data_sources/news_rss_client.py	2026-05-26 08:02:47.659214540 +0000
+@@ -92,19 +92,76 @@
+         }
+ 
+ 
++SYMBOL_ALIASES = {
++    # Mega-cap / AI / semis
++    'NVDA': ['nvidia'],
++    'AMD': ['advanced micro devices'],
++    'AVGO': ['broadcom'],
++    'QCOM': ['qualcomm'],
++    'INTC': ['intel'],
++    'ARM': ['arm holdings'],
++    'MU': ['micron', 'micron technology'],
++    'TSM': ['taiwan semiconductor', 'tsmc'],
++    'ASML': ['asml'],
++    'MSFT': ['microsoft'],
++    'AAPL': ['apple'],
++    'AMZN': ['amazon'],
++    'GOOGL': ['alphabet', 'google'],
++    'META': ['meta platforms', 'facebook'],
++    'TSLA': ['tesla'],
++    # Software / cloud
++    'CRM': ['salesforce'],
++    'ORCL': ['oracle'],
++    'NOW': ['servicenow'],
++    'PLTR': ['palantir'],
++    'SNOW': ['snowflake'],
++    # Energy / defensives / retail
++    'XOM': ['exxon', 'exxon mobil'],
++    'CVX': ['chevron'],
++    'COP': ['conocophillips'],
++    'SLB': ['schlumberger'],
++    'JNJ': ['johnson & johnson', 'johnson and johnson'],
++    'PEP': ['pepsico'],
++    'KO': ['coca-cola', 'coca cola'],
++    'COST': ['costco'],
++    'WMT': ['walmart'],
++    # ETFs / index proxies
++    'SPY': ['s&p 500', 's&p500'],
++    'QQQ': ['nasdaq 100', 'nasdaq-100'],
++    'IWM': ['russell 2000'],
++    'DIA': ['dow jones', 'dow industrials'],
++    'SMH': ['semiconductor etf'],
++    'SOXX': ['semiconductor etf'],
++    'XLE': ['energy sector'],
++    'XLF': ['financial sector'],
++    'XLK': ['technology sector'],
++}
++
++
+ def extract_tickers(text: str, allowed: Set[str] | None = None) -> Set[str]:
+-    allowed = allowed or set()
+-    tickers = set()
+-    # Match explicit symbols like $NVDA or (NASDAQ: NVDA)
+-    for m in re.finditer(r'\$([A-Z]{1,5})\b|\b(?:NASDAQ|NYSE|AMEX):\s*([A-Z]{1,5})\b', text):
++    allowed = {s.upper() for s in allowed} if allowed else set()
++    tickers: Set[str] = set()
++    upper_text = text.upper()
++    lower_text = text.lower()
++
++    # Match explicit symbols like $NVDA or (NASDAQ: NVDA).
++    for m in re.finditer(r'\$([A-Z]{1,5})\b|\b(?:NASDAQ|NYSE|AMEX):\s*([A-Z]{1,5})\b', upper_text):
+         sym = (m.group(1) or m.group(2) or '').upper()
+         if sym and sym not in COMMON_WORDS and (not allowed or sym in allowed):
+             tickers.add(sym)
++
+     # Match known allowed symbols as standalone words.
+     if allowed:
+         for sym in allowed:
+-            if re.search(rf'(?<![A-Z]){re.escape(sym)}(?![A-Z])', text.upper()):
++            if re.search(rf'(?<![A-Z0-9]){re.escape(sym)}(?![A-Z0-9])', upper_text):
+                 tickers.add(sym)
++
++            # Also match company names / common aliases, because RSS headlines often say
++            # "Nvidia", "Apple", "Broadcom", etc. instead of ticker symbols.
++            for alias in SYMBOL_ALIASES.get(sym, []):
++                if re.search(rf'(?<![a-z0-9]){re.escape(alias.lower())}(?![a-z0-9])', lower_text):
++                    tickers.add(sym)
++
+     return tickers
+ 
+ 
+diff -ruN intraday_int/intraday_ai_assistant_integrated/scripts/run_premarket.py intraday_patchwork/scripts/run_premarket.py
+--- intraday_int/intraday_ai_assistant_integrated/scripts/run_premarket.py	2026-05-26 05:28:56.000000000 +0000
++++ intraday_patchwork/scripts/run_premarket.py	2026-05-26 08:02:47.659853229 +0000
+@@ -28,6 +28,33 @@
+ from app.integration.monitor_bridge import publish_recommendations_to_monitor
+ 
+ 
++def build_news_rss_urls(base_urls: list[str], query_symbols: list[str]) -> list[str]:
++    """Build RSS URLs without hard-coding one ticker such as NVDA.
++
++    The original configuration can still provide general feeds. For symbol-specific
++    Yahoo Finance RSS, generate one feed per configured query symbol.
++    """
++    urls: list[str] = []
++    seen: set[str] = set()
++
++    def add(url: str) -> None:
++        url = (url or '').strip()
++        if url and url not in seen:
++            seen.add(url)
++            urls.append(url)
++
++    for url in base_urls:
++        add(url)
++
++    for symbol in query_symbols:
++        sym = symbol.strip().upper()
++        if not sym:
++            continue
++        add(f'https://feeds.finance.yahoo.com/rss/2.0/headline?s={sym}&region=US&lang=en-US')
++
++    return urls
++
++
+ def main() -> None:
+     configure_utf8_stdio()
+     parser = argparse.ArgumentParser(description='Generate premarket intraday AI assistant report.')
+@@ -73,7 +100,9 @@
+ 
+         market_regime = compute_market_regime(index_snapshots, sector_snapshots)
+ 
+-        news_client = NewsRSSClient(settings.news_rss_urls)
++        news_query_symbols = settings.news_query_symbols or settings.core_symbols
++        news_urls = build_news_rss_urls(settings.news_rss_urls, news_query_symbols)
++        news_client = NewsRSSClient(news_urls)
+         news_items = news_client.fetch(allowed_symbols=all_watch_symbols)
+         write_json(settings.data_dir / 'news_snapshot.json', news_items)
+ 
+diff -ruN intraday_int/intraday_ai_assistant_integrated/tests/test_news_rss.py intraday_patchwork/tests/test_news_rss.py
+--- intraday_int/intraday_ai_assistant_integrated/tests/test_news_rss.py	2026-05-11 02:53:04.000000000 +0000
++++ intraday_patchwork/tests/test_news_rss.py	2026-05-26 08:02:47.661309892 +0000
+@@ -15,3 +15,8 @@
+ def test_infer_sentiment():
+     assert infer_sentiment('stock surges after strong earnings') == 'positive'
+     assert infer_sentiment('stock drops after weak guidance') == 'negative'
++
++
++def test_extract_tickers_company_aliases():
++    text = 'Nvidia, Broadcom and Apple rise while Tesla falls.'
++    assert extract_tickers(text, {'NVDA', 'AVGO', 'AAPL', 'TSLA'}) == {'NVDA', 'AVGO', 'AAPL', 'TSLA'}
+diff -ruN intraday_int/intraday_ai_assistant_integrated/tests/test_scripts.py intraday_patchwork/tests/test_scripts.py
+--- intraday_int/intraday_ai_assistant_integrated/tests/test_scripts.py	2026-05-11 04:23:34.000000000 +0000
++++ intraday_patchwork/tests/test_scripts.py	2026-05-26 08:02:47.661589761 +0000
+@@ -55,3 +55,12 @@
+     assert res.returncode == 0, res.stderr
+     assert ('一句话结论' in res.stdout) or ('结论' in res.stdout)
+     assert (tmp_path / 'data' / 'evidence_pack_SATS.json').exists()
++
++
++def test_build_news_rss_urls_generates_per_symbol_feeds():
++    from scripts.run_premarket import build_news_rss_urls
++
++    urls = build_news_rss_urls(['https://example.com/general.rss'], ['NVDA', 'AMD'])
++    assert 'https://example.com/general.rss' in urls
++    assert any('s=NVDA' in u for u in urls)
++    assert any('s=AMD' in u for u in urls)

@@ -1,0 +1,20 @@
+{
+  "score": 64.6,
+  "label": "strong_risk_on",
+  "summary": "市场风险偏好偏强；强势板块：SMH, SOXX, XLI, XLK；弱势板块：XLE。",
+  "index_changes": {
+    "SPY": 0.583,
+    "QQQ": 0.88,
+    "IWM": 0.975,
+    "DIA": 0.486
+  },
+  "strong_sectors": [
+    "SMH",
+    "SOXX",
+    "XLI",
+    "XLK"
+  ],
+  "weak_sectors": [
+    "XLE"
+  ]
+}

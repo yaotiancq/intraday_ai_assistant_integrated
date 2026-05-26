@@ -1,0 +1,3 @@
+{
+  "error": "HTTPConnectionPool(host='127.0.0.1', port=8765): Max retries exceeded with url: /watchlist/add (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=8765): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+}

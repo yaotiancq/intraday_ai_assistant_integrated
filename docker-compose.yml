@@ -1,0 +1,55 @@
+services:
+  monitor:
+    build: .
+    image: intraday-ai-assistant-integrated:latest
+    container_name: futu-monitor
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    command:
+      - python
+      - scripts/run_realtime_monitor.py
+      - --host
+      - ${FUTU_HOST:-127.0.0.1}
+      - --port
+      - ${FUTU_PORT:-11111}
+      - --symbols
+      - ${WATCH_SYMBOLS:-US.SPY,US.QQQ,US.NVDA}
+      - --max-symbols
+      - ${MAX_SYMBOLS:-20}
+      - --skip-snapshot-filter
+      - --admin-host
+      - ${ADMIN_HOST:-127.0.0.1}
+      - --admin-port
+      - ${ADMIN_PORT:-8765}
+    restart: unless-stopped
+
+  discord-bot:
+    image: intraday-ai-assistant-integrated:latest
+    container_name: discord-watchlist-bot
+    network_mode: host
+    env_file:
+      - .env
+    command:
+      - python
+      - scripts/discord_watchlist_bot.py
+    depends_on:
+      - monitor
+    restart: unless-stopped
+
+  premarket-scheduler:
+    image: intraday-ai-assistant-integrated:latest
+    container_name: premarket-ai-scheduler
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    command:
+      - python
+      - scripts/run_daily_premarket_scheduler.py
+    depends_on:
+      - monitor
+    restart: unless-stopped

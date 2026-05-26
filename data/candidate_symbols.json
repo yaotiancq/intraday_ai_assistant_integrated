@@ -1,0 +1,196 @@
+{
+  "symbols": [
+    "AAPL",
+    "AMD",
+    "AMZN",
+    "ARM",
+    "ASML",
+    "AVGO",
+    "COP",
+    "COST",
+    "CRM",
+    "CVX",
+    "DIA",
+    "GOOGL",
+    "INTC",
+    "IWM",
+    "JNJ",
+    "KO",
+    "META",
+    "MSFT",
+    "MU",
+    "NOW",
+    "NVDA",
+    "ORCL",
+    "PEP",
+    "PLTR",
+    "QCOM",
+    "QQQ",
+    "SLB",
+    "SMH",
+    "SNOW",
+    "SOXX",
+    "SPY",
+    "TSLA",
+    "TSM",
+    "WMT",
+    "XLE",
+    "XOM"
+  ],
+  "reason": {
+    "AAPL": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "AMD": [
+      "core_watchlist",
+      "news_catalyst",
+      "premarket_mover"
+    ],
+    "AMZN": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "ARM": [
+      "core_watchlist",
+      "news_catalyst",
+      "premarket_mover"
+    ],
+    "ASML": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "AVGO": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "COP": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "COST": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "CRM": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "CVX": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "DIA": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "GOOGL": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "INTC": [
+      "core_watchlist",
+      "news_catalyst",
+      "premarket_mover"
+    ],
+    "IWM": [
+      "core_watchlist"
+    ],
+    "JNJ": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "KO": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "META": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "MSFT": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "MU": [
+      "core_watchlist",
+      "news_catalyst",
+      "premarket_mover"
+    ],
+    "NOW": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "NVDA": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "ORCL": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "PEP": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "PLTR": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "QCOM": [
+      "core_watchlist",
+      "news_catalyst",
+      "premarket_mover"
+    ],
+    "QQQ": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "SLB": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "SMH": [
+      "news_catalyst",
+      "premarket_mover"
+    ],
+    "SNOW": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "SOXX": [
+      "news_catalyst",
+      "premarket_mover"
+    ],
+    "SPY": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "TSLA": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "TSM": [
+      "core_watchlist",
+      "news_catalyst",
+      "premarket_mover"
+    ],
+    "WMT": [
+      "core_watchlist",
+      "news_catalyst"
+    ],
+    "XLE": [
+      "news_catalyst"
+    ],
+    "XOM": [
+      "core_watchlist",
+      "news_catalyst"
+    ]
+  },
+  "counts": {
+    "core": 33,
+    "news": 35,
+    "movers": 8,
+    "total": 36
+  }
+}
