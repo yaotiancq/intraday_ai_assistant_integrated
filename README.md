@@ -10,6 +10,14 @@
 - 在实时监控中输出 WATCH/BUY/SELL 信号提示
 - 通过 Discord webhook 和 slash command 在手机端查看、调整 watchlist
 
+集成版额外提供：
+
+- 美股交易日 gate，避免非交易日自动运行盘前任务
+- 盘前助手自动发布 A/B 级候选到 realtime monitor
+- Discord slash command 远程控制 monitor watchlist
+- monitor 默认只在常规交易时段运行
+- 夜间/非交易时段测试开关
+
 ## 1. 核心流程
 
 ```text
@@ -89,6 +97,7 @@ openssl rand -hex 32
 MONITOR_TEST_MODE=false
 MONITOR_EXTENDED_TIME=false
 MONITOR_FUTU_SESSION=RTH
+MONITOR_BAR_PERIOD=1m
 MONITOR_ALLOW_EMPTY_ADMIN_TOKEN=false
 ```
 
@@ -159,6 +168,17 @@ data/stock_report_NVDA.md
 
 ## 8. Docker 运行集成服务
 
+典型部署结构：
+
+```text
+Oracle Ubuntu host
+  ├─ Futu OpenD on 127.0.0.1:11111
+  └─ docker compose
+      ├─ monitor              # realtime signal monitor + local admin API
+      ├─ discord-bot          # Discord /watch commands from phone
+      └─ premarket-scheduler  # runs AI premarket once per trading day
+```
+
 ```bash
 docker compose build
 docker compose up -d
@@ -167,8 +187,8 @@ docker compose up -d
 服务：
 
 ```text
-monitor              # 实时 1m signal monitor + local admin API
-discord-bot          # Discord /watch add/remove/set/list
+monitor              # 实时 1m/3m/5m signal monitor + local admin API
+discord-bot          # Discord /watch add/remove/set/list/status/period
 premarket-scheduler  # 每个美股交易日运行一次盘前助手
 ```
 
@@ -209,11 +229,25 @@ Discord 手机端命令：
 
 ```text
 /watch list
+/watch status
+/watch period period: 1m
+/watch period period: 3m
+/watch period period: 5m
 /watch add symbol: NVDA
 /watch add_many symbols: SPY QQQ NVDA AMD
 /watch remove symbol: TSLA
 /watch set symbols: SPY QQQ NVDA AMD
 /watch clear
+```
+
+Monitor 支持 `1m`、`3m`、`5m` 三种 K 线周期。切换周期时，monitor 会重新订阅对应 Futu K 线并重建当前 watchlist 的缓存 K 线。
+
+当前硬编码 breakout lookback：
+
+```text
+1m -> 20 bars，约 20 分钟
+3m -> 10 bars，约 30 分钟
+5m ->  6 bars，约 30 分钟
 ```
 
 ## 10. 夜间/非交易时段测试
@@ -226,6 +260,16 @@ docker compose exec premarket-scheduler python scripts/run_premarket.py \
   --force-run \
   --allow-non-trading-day-test \
   --send-to-monitor
+```
+
+验证 watchlist：
+
+```bash
+set -a
+source .env
+set +a
+curl -H "X-Admin-Token: $WATCHLIST_ADMIN_TOKEN" \
+  http://127.0.0.1:8765/watchlist
 ```
 
 如果要临时测试 monitor 夜间实时信号，在 `.env` 中改：

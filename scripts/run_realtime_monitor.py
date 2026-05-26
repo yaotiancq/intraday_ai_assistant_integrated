@@ -6,7 +6,7 @@ Single-file, signal-only strategy monitor for Futu OpenAPI.
 
 Purpose
 -------
-Monitor multiple high-volume US ETFs / stocks with Futu real-time 1-minute K-line data
+Monitor multiple high-volume US ETFs / stocks with Futu real-time K-line data
 and print BUY / SELL / WATCH signals for an opening momentum breakout strategy.
 
 Important
@@ -125,12 +125,11 @@ FORCE_EXIT_TIME = dtime(15, 55)
 # Breakout setup
 BOOTSTRAP_BARS = 80
 MAX_STORED_BARS = 240
-BREAKOUT_LOOKBACK = 20
 BREAKOUT_VOLUME_MULT = 2.0 #2.0
 BREAKOUT_RANGE_MULT = 1.4
 MIN_BODY_RATIO = 0.45
 MIN_CLOSE_POSITION = 0.75
-MAX_ONE_BAR_RETURN = 0.015  # avoid chasing a single 1m bar already up > 2.5%
+MAX_ONE_BAR_RETURN = 0.015  # avoid chasing a single bar already up too much
 
 # Compression filter before breakout
 REQUIRE_COMPRESSION = True
@@ -156,11 +155,66 @@ ADMIN_TOKEN_ENV = "WATCHLIST_ADMIN_TOKEN"
 ADMIN_ALLOW_EMPTY_TOKEN_ENV = "MONITOR_ALLOW_EMPTY_ADMIN_TOKEN"
 
 
+@dataclass(frozen=True)
+class BarPeriodConfig:
+    label: str
+    minutes: int
+    futu_type_name: str
+    breakout_lookback: int
+
+    @property
+    def breakout_lookback_minutes(self) -> int:
+        return self.minutes * self.breakout_lookback
+
+
+BAR_PERIOD_CONFIGS = {
+    # 1m keeps the original 20-bar opening breakout lookback.
+    "1m": BarPeriodConfig("1m", 1, "K_1M", 20),
+    # For wider bars, use common short-window opening breakout settings.
+    "3m": BarPeriodConfig("3m", 3, "K_3M", 10),
+    "5m": BarPeriodConfig("5m", 5, "K_5M", 6),
+}
+
+
 def _env_bool_monitor(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def normalize_bar_period(value: str | None) -> str:
+    raw = str(value or "1m").strip().lower().replace("_", "")
+    aliases = {
+        "1": "1m",
+        "1m": "1m",
+        "1min": "1m",
+        "k1m": "1m",
+        "3": "3m",
+        "3m": "3m",
+        "3min": "3m",
+        "k3m": "3m",
+        "5": "5m",
+        "5m": "5m",
+        "5min": "5m",
+        "k5m": "5m",
+    }
+    try:
+        return aliases[raw]
+    except KeyError as exc:
+        raise ValueError("bar_period must be one of: 1m, 3m, 5m") from exc
+
+
+def get_bar_period_config(value: str | None) -> BarPeriodConfig:
+    return BAR_PERIOD_CONFIGS[normalize_bar_period(value)]
+
+
+def _subtype_for_period(config: BarPeriodConfig) -> object:
+    return getattr(SubType, config.futu_type_name)
+
+
+def _kltype_for_period(config: BarPeriodConfig) -> object:
+    return getattr(KLType, config.futu_type_name)
 
 
 def _env_session_name() -> str:
@@ -391,17 +445,17 @@ def print_json(event: str, payload: dict) -> None:
 # Strategy Logic
 # ==============================
 
-def has_pre_breakout_compression(prev_bars: List[Bar]) -> Tuple[bool, dict]:
+def has_pre_breakout_compression(prev_bars: List[Bar], config: BarPeriodConfig) -> Tuple[bool, dict]:
     """
     Healthy compression before breakout:
     - last few bars before breakout have smaller volume and smaller range than the prior baseline
     - price does not collapse during compression
     """
-    if len(prev_bars) < BREAKOUT_LOOKBACK:
+    if len(prev_bars) < config.breakout_lookback:
         return False, {"reason": "not_enough_bars_for_compression"}
 
     compression = prev_bars[-COMPRESSION_BARS:]
-    baseline = prev_bars[-BREAKOUT_LOOKBACK:-COMPRESSION_BARS]
+    baseline = prev_bars[-config.breakout_lookback:-COMPRESSION_BARS]
     if len(compression) < COMPRESSION_BARS or not baseline:
         return False, {"reason": "not_enough_baseline"}
 
@@ -420,6 +474,9 @@ def has_pre_breakout_compression(prev_bars: List[Bar]) -> Tuple[bool, dict]:
 
     ok = volume_compressed and range_compressed and price_holding
     details = {
+        "bar_period": config.label,
+        "breakout_lookback": config.breakout_lookback,
+        "breakout_lookback_minutes": config.breakout_lookback_minutes,
         "compression_avg_vol": round(compression_avg_vol, 2),
         "baseline_avg_vol": round(baseline_avg_vol, 2),
         "compression_avg_range": round(compression_avg_range, 4),
@@ -431,17 +488,17 @@ def has_pre_breakout_compression(prev_bars: List[Bar]) -> Tuple[bool, dict]:
     return ok, details
 
 
-def detect_long_entry(bars: List[Bar], state: SymbolState) -> Tuple[bool, dict]:
+def detect_long_entry(bars: List[Bar], state: SymbolState, config: BarPeriodConfig) -> Tuple[bool, dict]:
     """
-    Detect a completed 1-minute breakout bar.
+    Detect a completed breakout bar.
     The latest bar is the just-completed signal bar.
     """
-    if len(bars) < BREAKOUT_LOOKBACK + 2:
+    if len(bars) < config.breakout_lookback + 2:
         return False, {"reason": "not_enough_bars"}
 
     signal_bar = bars[-1]
     prev_bars = bars[:-1]
-    lookback = prev_bars[-BREAKOUT_LOOKBACK:]
+    lookback = prev_bars[-config.breakout_lookback:]
 
     if not in_time_window(signal_bar.dt, ENTRY_START, ENTRY_END):
         return False, {"reason": "outside_entry_window"}
@@ -452,7 +509,7 @@ def detect_long_entry(bars: List[Bar], state: SymbolState) -> Tuple[bool, dict]:
     prior_close = prev_bars[-1].close
 
     if REQUIRE_COMPRESSION:
-        compression_ok, compression_details = has_pre_breakout_compression(prev_bars)
+        compression_ok, compression_details = has_pre_breakout_compression(prev_bars, config)
         if not compression_ok:
             return False, {"reason": "no_pre_breakout_compression", **compression_details}
     else:
@@ -479,6 +536,9 @@ def detect_long_entry(bars: List[Bar], state: SymbolState) -> Tuple[bool, dict]:
     ])
 
     details = {
+        "bar_period": config.label,
+        "breakout_lookback": config.breakout_lookback,
+        "breakout_lookback_minutes": config.breakout_lookback_minutes,
         "signal_price": round(signal_bar.close, 4),
         "breakout_level": round(prior_high, 4),
         "bar_volume": signal_bar.volume,
@@ -578,8 +638,15 @@ def detect_long_exit(bars: List[Bar], state: SymbolState) -> Tuple[bool, str, di
 # ==============================
 
 class OpeningMomentumSignalEngine:
-    def __init__(self, symbols: List[str], workers: int = WORKER_THREADS):
+    def __init__(
+        self,
+        symbols: List[str],
+        workers: int = WORKER_THREADS,
+        bar_period_config: BarPeriodConfig | None = None,
+    ):
         self.states_lock = threading.RLock()
+        self.config_lock = threading.RLock()
+        self.bar_period_config = bar_period_config or get_bar_period_config("1m")
         self.states: Dict[str, SymbolState] = {code: SymbolState(code=code) for code in symbols}
         self.executor = ThreadPoolExecutor(max_workers=workers)
         self._shutdown = threading.Event()
@@ -587,6 +654,28 @@ class OpeningMomentumSignalEngine:
     def list_symbols(self) -> List[str]:
         with self.states_lock:
             return sorted(self.states.keys())
+
+    def get_bar_period_config(self) -> BarPeriodConfig:
+        with self.config_lock:
+            return self.bar_period_config
+
+    def strategy_status(self) -> dict:
+        config = self.get_bar_period_config()
+        return {
+            "bar_period": config.label,
+            "futu_type": config.futu_type_name,
+            "breakout_lookback": config.breakout_lookback,
+            "breakout_lookback_minutes": config.breakout_lookback_minutes,
+        }
+
+    def set_bar_period_config(self, config: BarPeriodConfig) -> None:
+        with self.config_lock:
+            self.bar_period_config = config
+        with self.states_lock:
+            states = list(self.states.values())
+        for state in states:
+            with state.lock:
+                self._reset_state_locked(state)
 
     def ensure_symbol_state(self, code: str) -> bool:
         """Create state for a new symbol. Return True if newly added."""
@@ -601,13 +690,27 @@ class OpeningMomentumSignalEngine:
         with self.states_lock:
             return self.states.pop(code, None) is not None
 
+    @staticmethod
+    def _reset_state_locked(state: SymbolState) -> None:
+        state.bars.clear()
+        state.current_bar = None
+        state.position = "FLAT"
+        state.entry_price = None
+        state.entry_time = None
+        state.breakout_level = None
+        state.high_water = None
+        state.bars_since_entry = 0
+        state.bars_without_new_high = 0
+        state.last_signal = None
+        state.last_signal_time = None
+
     def shutdown(self) -> None:
         self._shutdown.set()
         self.executor.shutdown(wait=False, cancel_futures=True)
 
     def bootstrap_symbol(self, code: str, data) -> None:
         """
-        Load recent 1-minute K-lines. Treat the last row as the currently forming bar
+        Load recent K-lines. Treat the last row as the currently forming bar
         and earlier rows as completed bars.
         """
         if code not in self.states or data is None or len(data) == 0:
@@ -630,6 +733,7 @@ class OpeningMomentumSignalEngine:
 
         print_json("BOOTSTRAP", {
             "code": code,
+            **self.strategy_status(),
             "completed_bars": max(len(bars) - 1, 0),
             "current_bar": bars[-1].time_key,
         })
@@ -676,18 +780,19 @@ class OpeningMomentumSignalEngine:
 
     def _emit_intrabar_watch_if_needed(self, state: SymbolState, current_bar: Bar) -> None:
         """
-        Optional early warning on the forming 1-minute bar.
+        Optional early warning on the forming bar.
         This is not a BUY signal. It is a watch signal for a rapidly forming breakout bar.
         """
         if state.position != "FLAT":
             return
         if not in_time_window(current_bar.dt, ENTRY_START, ENTRY_END):
             return
-        if len(state.bars) < BREAKOUT_LOOKBACK:
+        config = self.get_bar_period_config()
+        if len(state.bars) < config.breakout_lookback:
             return
 
         bars = list(state.bars)
-        lookback = bars[-BREAKOUT_LOOKBACK:]
+        lookback = bars[-config.breakout_lookback:]
         prior_high = max(b.high for b in lookback)
         avg_volume = mean(b.volume for b in lookback)
         avg_range = mean(b.range_abs for b in lookback)
@@ -713,12 +818,13 @@ class OpeningMomentumSignalEngine:
             "code": state.code,
             "side": "WATCH",
             "bar_time": current_bar.time_key,
-            "reason": "forming_1m_fast_breakout",
+            "reason": "forming_fast_breakout",
+            **self.strategy_status(),
             "price": round(current_bar.close, 4),
             "prior_high": round(prior_high, 4),
             "volume_mult": round(safe_div(current_bar.volume, avg_volume), 2),
             "range_mult": round(safe_div(current_bar.range_abs, avg_range), 2),
-            "note": "WATCH only; final BUY requires completed 1m bar confirmation.",
+            "note": "WATCH only; final BUY requires completed bar confirmation.",
         })
 
     def evaluate_completed_bar(self, code: str) -> None:
@@ -743,7 +849,7 @@ class OpeningMomentumSignalEngine:
 
             # Then look for long entries if flat.
             if state.position == "FLAT":
-                should_buy, entry_details = detect_long_entry(bars, state)
+                should_buy, entry_details = detect_long_entry(bars, state, self.get_bar_period_config())
                 if should_buy:
                     self._emit_buy_signal_locked(state, latest_bar, entry_details)
 
@@ -783,6 +889,7 @@ class OpeningMomentumSignalEngine:
             "side": "SELL",
             "bar_time": bar.time_key,
             "reason": reason,
+            **self.strategy_status(),
             **details,
         })
 
@@ -835,56 +942,94 @@ class WatchlistAdminController:
         self.lock = threading.RLock()
 
     def list_symbols(self) -> dict:
-        return {"symbols": self.engine.list_symbols()}
+        return {"symbols": self.engine.list_symbols(), **self.engine.strategy_status()}
+
+    def strategy_status(self) -> dict:
+        return {"status": "ok", "symbols": self.engine.list_symbols(), **self.engine.strategy_status()}
+
+    def _subscribe_symbols(self, symbols: List[str], config: BarPeriodConfig) -> None:
+        if not symbols:
+            return
+        ret, message = self.quote_ctx.subscribe(
+            code_list=symbols,
+            subtype_list=[_subtype_for_period(config)],
+            is_first_push=True,
+            subscribe_push=True,
+            extended_time=MONITOR_EXTENDED_TIME,
+            session=MONITOR_FUTU_SESSION,
+        )
+        if ret != RET_OK:
+            raise RuntimeError(f"Futu subscribe failed for {symbols}: {message}")
+
+    def _unsubscribe_symbols(self, symbols: List[str], config: BarPeriodConfig, strict: bool = False) -> None:
+        if not symbols:
+            return
+        try:
+            ret, message = self.quote_ctx.unsubscribe(symbols, [_subtype_for_period(config)])
+        except Exception as exc:
+            print_json("WARN", {
+                "reason": "unsubscribe_failed",
+                "symbols": symbols,
+                "bar_period": config.label,
+                "message": str(exc),
+            })
+            if strict:
+                raise
+            return
+        if ret != RET_OK:
+            print_json("WARN", {
+                "reason": "unsubscribe_failed",
+                "symbols": symbols,
+                "bar_period": config.label,
+                "message": str(message),
+            })
+            if strict:
+                raise RuntimeError(f"Futu unsubscribe failed for {symbols}: {message}")
+
+    def _bootstrap_symbol(self, code: str, config: BarPeriodConfig) -> None:
+        ret, data = self.quote_ctx.get_cur_kline(
+            code=code,
+            num=BOOTSTRAP_BARS,
+            ktype=_kltype_for_period(config),
+            autype=AuType.QFQ,
+        )
+        if ret == RET_OK:
+            self.engine.bootstrap_symbol(code, data)
+        else:
+            print_json("WARN", {
+                "code": code,
+                "reason": "admin_bootstrap_get_cur_kline_failed",
+                "bar_period": config.label,
+                "message": str(data),
+            })
 
     def add_symbol(self, symbol: str) -> dict:
         code = normalize_symbol(symbol)
         with self.lock:
             already_exists = not self.engine.ensure_symbol_state(code)
             if already_exists:
-                return {"status": "ok", "action": "noop", "symbol": code, "symbols": self.engine.list_symbols()}
+                return {"status": "ok", "action": "noop", "symbol": code, **self.list_symbols()}
 
-            ret, message = self.quote_ctx.subscribe(
-                code_list=[code],
-                subtype_list=[SubType.K_1M],
-                is_first_push=True,
-                subscribe_push=True,
-                extended_time=MONITOR_EXTENDED_TIME,
-                session=MONITOR_FUTU_SESSION,
-            )
-            if ret != RET_OK:
+            config = self.engine.get_bar_period_config()
+            try:
+                self._subscribe_symbols([code], config)
+            except Exception:
                 self.engine.remove_symbol_state(code)
-                raise RuntimeError(f"Futu subscribe failed for {code}: {message}")
+                raise
 
-            ret, data = self.quote_ctx.get_cur_kline(
-                code=code,
-                num=BOOTSTRAP_BARS,
-                ktype=KLType.K_1M,
-                autype=AuType.QFQ,
-            )
-            if ret == RET_OK:
-                self.engine.bootstrap_symbol(code, data)
-            else:
-                print_json("WARN", {
-                    "code": code,
-                    "reason": "admin_bootstrap_get_cur_kline_failed",
-                    "message": str(data),
-                })
+            self._bootstrap_symbol(code, config)
 
-            print_json("ADMIN", {"action": "add", "symbol": code, "symbols": self.engine.list_symbols()})
-            return {"status": "ok", "action": "add", "symbol": code, "symbols": self.engine.list_symbols()}
+            print_json("ADMIN", {"action": "add", "symbol": code, **self.list_symbols()})
+            return {"status": "ok", "action": "add", "symbol": code, **self.list_symbols()}
 
     def remove_symbol(self, symbol: str) -> dict:
         code = normalize_symbol(symbol)
         with self.lock:
             existed = self.engine.remove_symbol_state(code)
-            try:
-                self.quote_ctx.unsubscribe([code], [SubType.K_1M])
-            except Exception as exc:
-                print_json("WARN", {"code": code, "reason": "unsubscribe_failed", "message": str(exc)})
+            self._unsubscribe_symbols([code], self.engine.get_bar_period_config())
 
-            print_json("ADMIN", {"action": "remove", "symbol": code, "existed": existed, "symbols": self.engine.list_symbols()})
-            return {"status": "ok", "action": "remove", "symbol": code, "existed": existed, "symbols": self.engine.list_symbols()}
+            print_json("ADMIN", {"action": "remove", "symbol": code, "existed": existed, **self.list_symbols()})
+            return {"status": "ok", "action": "remove", "symbol": code, "existed": existed, **self.list_symbols()}
 
     def set_symbols(self, symbols: List[str]) -> dict:
         desired = sorted({normalize_symbol(s) for s in symbols})
@@ -899,8 +1044,8 @@ class WatchlistAdminController:
                 if code not in current:
                     self.add_symbol(code)
 
-            print_json("ADMIN", {"action": "set", "symbols": self.engine.list_symbols()})
-            return {"status": "ok", "action": "set", "symbols": self.engine.list_symbols()}
+            print_json("ADMIN", {"action": "set", **self.list_symbols()})
+            return {"status": "ok", "action": "set", **self.list_symbols()}
 
     def clear(self) -> dict:
         with self.lock:
@@ -908,8 +1053,32 @@ class WatchlistAdminController:
             for code in current:
                 self.remove_symbol(code)
 
-            print_json("ADMIN", {"action": "clear", "symbols": self.engine.list_symbols()})
-            return {"status": "ok", "action": "clear", "symbols": self.engine.list_symbols()}
+            print_json("ADMIN", {"action": "clear", **self.list_symbols()})
+            return {"status": "ok", "action": "clear", **self.list_symbols()}
+
+    def set_bar_period(self, raw_period: str) -> dict:
+        new_config = get_bar_period_config(raw_period)
+        with self.lock:
+            old_config = self.engine.get_bar_period_config()
+            symbols = self.engine.list_symbols()
+            if old_config.label == new_config.label:
+                return {"status": "ok", "action": "noop", **self.list_symbols()}
+
+            self._unsubscribe_symbols(symbols, old_config, strict=True)
+            try:
+                self._subscribe_symbols(symbols, new_config)
+            except Exception:
+                # Best-effort restore of the previous live subscription.
+                self._subscribe_symbols(symbols, old_config)
+                raise
+
+            self.engine.set_bar_period_config(new_config)
+            for code in symbols:
+                self._bootstrap_symbol(code, new_config)
+
+            result = {"status": "ok", "action": "set_bar_period", **self.list_symbols()}
+            print_json("ADMIN", result)
+            return result
 
 
 class WatchlistAdminHandler(BaseHTTPRequestHandler):
@@ -952,6 +1121,10 @@ class WatchlistAdminHandler(BaseHTTPRequestHandler):
             assert self.controller is not None
             self._send_json(200, {"status": "ok", **self.controller.list_symbols()})
             return
+        if path == "/strategy":
+            assert self.controller is not None
+            self._send_json(200, self.controller.strategy_status())
+            return
         self._send_json(404, {"status": "error", "error": "not_found"})
 
     def do_POST(self) -> None:
@@ -975,6 +1148,10 @@ class WatchlistAdminHandler(BaseHTTPRequestHandler):
             if path == "/watchlist/clear":
                 self._send_json(200, self.controller.clear())
                 return
+            if path == "/strategy/bar-period":
+                period = payload.get("bar_period", payload.get("period", ""))
+                self._send_json(200, self.controller.set_bar_period(period))
+                return
             self._send_json(404, {"status": "error", "error": "not_found"})
         except Exception as exc:
             self._send_json(400, {"status": "error", "error": str(exc)})
@@ -993,10 +1170,12 @@ def start_admin_server(host: str, port: int, token: str, controller: WatchlistAd
         "endpoints": [
             "GET /health",
             "GET /watchlist",
+            "GET /strategy",
             "POST /watchlist/add",
             "POST /watchlist/remove",
             "POST /watchlist/set",
             "POST /watchlist/clear",
+            "POST /strategy/bar-period",
         ],
     })
     return server
@@ -1082,10 +1261,10 @@ def select_high_volume_symbols(
     return selected
 
 
-def subscribe_realtime_1m(quote_ctx: OpenQuoteContext, symbols: List[str]) -> None:
+def subscribe_realtime_bars(quote_ctx: OpenQuoteContext, symbols: List[str], config: BarPeriodConfig) -> None:
     ret, message = quote_ctx.subscribe(
         code_list=symbols,
-        subtype_list=[SubType.K_1M],
+        subtype_list=[_subtype_for_period(config)],
         is_first_push=True,
         subscribe_push=True,
         extended_time=MONITOR_EXTENDED_TIME,
@@ -1096,7 +1275,10 @@ def subscribe_realtime_1m(quote_ctx: OpenQuoteContext, symbols: List[str]) -> No
 
     print_json("SUBSCRIBED", {
         "symbols": symbols,
-        "subtypes": ["K_1M"],
+        "subtypes": [config.futu_type_name],
+        "bar_period": config.label,
+        "breakout_lookback": config.breakout_lookback,
+        "breakout_lookback_minutes": config.breakout_lookback_minutes,
         "session": MONITOR_FUTU_SESSION_NAME,
         "extended_time": MONITOR_EXTENDED_TIME,
     })
@@ -1106,12 +1288,13 @@ def bootstrap_recent_bars(
     quote_ctx: OpenQuoteContext,
     engine: OpeningMomentumSignalEngine,
     symbols: List[str],
+    config: BarPeriodConfig,
 ) -> None:
     for code in symbols:
         ret, data = quote_ctx.get_cur_kline(
             code=code,
             num=BOOTSTRAP_BARS,
-            ktype=KLType.K_1M,
+            ktype=_kltype_for_period(config),
             autype=AuType.QFQ,
         )
         if ret == RET_OK:
@@ -1120,6 +1303,7 @@ def bootstrap_recent_bars(
             print_json("WARN", {
                 "code": code,
                 "reason": "bootstrap_get_cur_kline_failed",
+                "bar_period": config.label,
                 "message": str(data),
             })
 
@@ -1130,7 +1314,7 @@ def bootstrap_recent_bars(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Futu real-time 1-minute opening momentum signal monitor. Signal-only; no order placement."
+        description="Futu real-time opening momentum signal monitor. Signal-only; no order placement."
     )
     parser.add_argument("--host", default=FUTU_HOST, help="Futu OpenD host. Default: 127.0.0.1")
     parser.add_argument("--port", type=int, default=FUTU_PORT, help="Futu OpenD port. Default: 11111")
@@ -1141,6 +1325,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-symbols", type=int, default=MAX_SYMBOLS_TO_MONITOR)
     parser.add_argument("--workers", type=int, default=WORKER_THREADS)
+    parser.add_argument(
+        "--bar-period",
+        default=os.getenv("MONITOR_BAR_PERIOD", "1m"),
+        help="K-line bar period for the realtime monitor: 1m, 3m, or 5m. Default: env MONITOR_BAR_PERIOD or 1m.",
+    )
     parser.add_argument(
         "--skip-snapshot-filter",
         action="store_true",
@@ -1181,6 +1370,11 @@ def main() -> int:
     if not candidates:
         print_json("ERROR", {"reason": "empty_symbol_list"})
         return 2
+    try:
+        bar_period_config = get_bar_period_config(args.bar_period)
+    except ValueError as exc:
+        print_json("ERROR", {"reason": "invalid_bar_period", "message": str(exc)})
+        return 2
     if not args.admin_token and not args.allow_empty_admin_token:
         print_json("ERROR", {
             "reason": "missing_admin_token",
@@ -1204,7 +1398,11 @@ def main() -> int:
     else:
         symbols = select_high_volume_symbols(quote_ctx, candidates, max_symbols=args.max_symbols)
 
-    engine = OpeningMomentumSignalEngine(symbols=symbols, workers=args.workers)
+    engine = OpeningMomentumSignalEngine(
+        symbols=symbols,
+        workers=args.workers,
+        bar_period_config=bar_period_config,
+    )
     quote_ctx.set_handler(KlineSignalHandler(engine))
     admin_controller = WatchlistAdminController(quote_ctx=quote_ctx, engine=engine)
     admin_server: Optional[ThreadingHTTPServer] = None
@@ -1219,8 +1417,8 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _handle_stop)
 
     try:
-        subscribe_realtime_1m(quote_ctx, symbols)
-        bootstrap_recent_bars(quote_ctx, engine, symbols)
+        subscribe_realtime_bars(quote_ctx, symbols, bar_period_config)
+        bootstrap_recent_bars(quote_ctx, engine, symbols, bar_period_config)
         admin_server = start_admin_server(
             host=args.admin_host,
             port=args.admin_port,
@@ -1232,6 +1430,7 @@ def main() -> int:
             "message": "Signal monitor is running. It prints WATCH/BUY/SELL only; no orders are placed.",
             "symbol_count": len(symbols),
             "symbols": symbols,
+            **engine.strategy_status(),
             "monitor_test_mode": MONITOR_TEST_MODE,
             "monitor_extended_time": MONITOR_EXTENDED_TIME,
             "monitor_futu_session": MONITOR_FUTU_SESSION_NAME,
@@ -1246,6 +1445,7 @@ def main() -> int:
                 print_json("HEARTBEAT", {
                     "symbol_count": len(current_symbols),
                     "symbols": current_symbols,
+                    **engine.strategy_status(),
                     "state": "running",
                 })
             time.sleep(1)

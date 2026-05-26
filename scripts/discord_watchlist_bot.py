@@ -6,6 +6,7 @@ Discord Slash Command Bot for controlling the running Futu watchlist monitor.
 
 Commands:
 /watch list
+/watch period period:3m
 /watch add symbol:NVDA
 /watch add_many symbols:SPY QQQ NVDA AMD
 /watch remove symbol:TSLA
@@ -101,6 +102,16 @@ def format_symbols(symbols: List[str]) -> str:
         return text[:1500] + " ..."
 
     return text
+
+
+def format_strategy_status(data: dict) -> str:
+    bar_period = data.get("bar_period", "unknown")
+    breakout_lookback = data.get("breakout_lookback", "unknown")
+    breakout_minutes = data.get("breakout_lookback_minutes", "unknown")
+    return (
+        f"Period: `{bar_period}` | "
+        f"Breakout lookback: `{breakout_lookback}` bars / `{breakout_minutes}` min"
+    )
 
 
 def is_allowed(interaction: discord.Interaction) -> bool:
@@ -236,7 +247,52 @@ async def watch_list(interaction: discord.Interaction):
         data = await admin_get("/watchlist")
         symbols = data.get("symbols", [])
         await interaction.followup.send(
-            f"Current watchlist: `{format_symbols(symbols)}`",
+            f"{format_strategy_status(data)}\nCurrent watchlist: `{format_symbols(symbols)}`",
+            ephemeral=True,
+        )
+
+    except Exception as exc:
+        await interaction.followup.send(f"Error: `{exc}`", ephemeral=True)
+
+
+@watch_group.command(name="period", description="Switch monitor bar period")
+@app_commands.describe(period="Choose 1m, 3m, or 5m")
+@app_commands.choices(period=[
+    app_commands.Choice(name="1 minute", value="1m"),
+    app_commands.Choice(name="3 minutes", value="3m"),
+    app_commands.Choice(name="5 minutes", value="5m"),
+])
+async def watch_period(interaction: discord.Interaction, period: app_commands.Choice[str]):
+    if await reject_if_not_allowed(interaction):
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        data = await admin_post("/strategy/bar-period", {"bar_period": period.value})
+        symbols = data.get("symbols", [])
+        action = data.get("action", "set_bar_period")
+        await interaction.followup.send(
+            f"Action: `{action}`\n{format_strategy_status(data)}\nCurrent watchlist: `{format_symbols(symbols)}`",
+            ephemeral=True,
+        )
+
+    except Exception as exc:
+        await interaction.followup.send(f"Error: `{exc}`", ephemeral=True)
+
+
+@watch_group.command(name="status", description="Show monitor period and watchlist")
+async def watch_status(interaction: discord.Interaction):
+    if await reject_if_not_allowed(interaction):
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        data = await admin_get("/strategy")
+        symbols = data.get("symbols", [])
+        await interaction.followup.send(
+            f"{format_strategy_status(data)}\nCurrent watchlist: `{format_symbols(symbols)}`",
             ephemeral=True,
         )
 
