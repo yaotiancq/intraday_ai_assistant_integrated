@@ -32,6 +32,7 @@ from datetime import datetime, time as dtime
 from hmac import compare_digest
 from typing import Deque, Dict, Iterable, List, Optional, Tuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse
 import os
 import urllib.request
@@ -46,6 +47,53 @@ from futu import (  # type: ignore
     Session,
     SubType,
 )
+
+from dotenv import load_dotenv
+
+
+def load_project_env() -> Path:
+    """
+    Load .env from the project root instead of relying on the shell's
+    current working directory.
+
+    Supported layouts:
+    1. project_root/scripts/run_realtime_monitor.py
+    2. project_root/futu_opening_momentum_signal.py
+    3. running from any directory with ENV_FILE explicitly set
+
+    ENV_FILE has the highest priority:
+        ENV_FILE=/absolute/path/to/.env python scripts/run_realtime_monitor.py
+    """
+    explicit_env = os.getenv("ENV_FILE")
+    if explicit_env:
+        env_path = Path(explicit_env).expanduser().resolve()
+        load_dotenv(dotenv_path=env_path, override=False)
+        return env_path
+
+    current_file = Path(__file__).resolve()
+
+    # Case 1: file is inside project_root/scripts/
+    if current_file.parent.name == "scripts":
+        project_root = current_file.parents[1]
+    else:
+        # Case 2: file is directly under project root
+        project_root = current_file.parent
+
+    env_path = project_root / ".env"
+
+    # Fallback: search upward from the current file location.
+    if not env_path.exists():
+        for parent in [current_file.parent, *current_file.parents]:
+            candidate = parent / ".env"
+            if candidate.exists():
+                env_path = candidate
+                break
+
+    load_dotenv(dotenv_path=env_path, override=False)
+    return env_path
+
+
+ENV_PATH = load_project_env()
 
 
 # ==============================
@@ -78,11 +126,11 @@ FORCE_EXIT_TIME = dtime(15, 55)
 BOOTSTRAP_BARS = 80
 MAX_STORED_BARS = 240
 BREAKOUT_LOOKBACK = 20
-BREAKOUT_VOLUME_MULT = 2.0
+BREAKOUT_VOLUME_MULT = 2.0 #2.0
 BREAKOUT_RANGE_MULT = 1.4
 MIN_BODY_RATIO = 0.45
 MIN_CLOSE_POSITION = 0.75
-MAX_ONE_BAR_RETURN = 0.025  # avoid chasing a single 1m bar already up > 2.5%
+MAX_ONE_BAR_RETURN = 0.015  # avoid chasing a single 1m bar already up > 2.5%
 
 # Compression filter before breakout
 REQUIRE_COMPRESSION = True
@@ -1116,6 +1164,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+
+    print_json("CONFIG", {
+        "env_path": str(ENV_PATH),
+        "admin_token_loaded": bool(args.admin_token),
+        "futu_host": args.host,
+        "futu_port": args.port,
+        "admin_host": args.admin_host,
+        "admin_port": args.admin_port,
+        "symbols": args.symbols,
+        "monitor_test_mode": MONITOR_TEST_MODE,
+        "monitor_extended_time": MONITOR_EXTENDED_TIME,
+        "monitor_futu_session": MONITOR_FUTU_SESSION_NAME,
+    })
     candidates = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     if not candidates:
         print_json("ERROR", {"reason": "empty_symbol_list"})

@@ -1,96 +1,135 @@
 # Intraday AI Assistant（日内投资助手）
 
-这是一个**只读行情数据 + 新闻催化 + 技术指标 + 优先级评分 + LLM 盘前报告 + Discord 推送**项目骨架。
+这是一个**只读行情数据 + 新闻催化 + 技术指标 + 优先级评分 + LLM 盘前报告 + Discord 推送 + Futu 实时监控**项目。
 
-它不是自动下单系统，不包含任何交易、下单、撤单、持仓修改代码。核心目标是每天盘前生成：
+它不是自动下单系统，不包含下单、撤单、修改持仓等交易代码。核心目标是：
 
-- 整体市场环境观察
-- 强弱板块
-- 当天值得观察的股票
-- A/B/C 优先级
-- 关键价位、触发条件、失效条件、风险提示
+- 每个美股交易日盘前生成结构化观察报告
+- 根据 evidence pack 给股票分 A/B/C/D 优先级
+- 把 A/B 级股票同步到实时监控 watchlist
+- 在实时监控中输出 WATCH/BUY/SELL 信号提示
+- 通过 Discord webhook 和 slash command 在手机端查看、调整 watchlist
 
-## 1. 项目结构
+## 1. 核心流程
 
 ```text
-intraday_ai_assistant/
-  app/
-    config.py
-    data_sources/
-      futu_client.py
-      news_rss_client.py
-    indicators/
-      technical_indicators.py
-    scoring/
-      market_regime.py
-      priority.py
-    pipeline/
-      candidate_builder.py
-      evidence_builder.py
-    llm/
-      openai_client.py
-      prompts.py
-    validators/
-      evidence_validator.py
-      output_validator.py
-    delivery/
-      discord.py
-    utils/
-      file_io.py
-      time_utils.py
-  scripts/
-    run_premarket.py
-    run_single_stock_analysis.py
-  tests/
-  data/
-  .env
-  .env.example
-  requirements.txt
+05:45 PT，美股交易日
+  -> scripts/run_premarket.py --send-discord --send-to-monitor
+  -> 生成盘前 evidence pack 和中文报告
+  -> 报告推送到 Discord
+  -> A/B 级候选股票同步到 realtime monitor
+  -> monitor 在常规交易时段监听 1m K 线信号
+  -> Discord /watch 命令可随时调整 watchlist
 ```
 
-## 2. 安装
+## 2. 项目结构
+
+```text
+app/
+  config.py
+  data_sources/          # Futu / RSS clients
+  indicators/            # 技术指标与关键价位
+  scoring/               # 市场环境与候选股评分
+  pipeline/              # candidate/evidence pack 构建
+  llm/                   # OpenAI prompt 与报告生成
+  validators/            # evidence/report 校验
+  delivery/              # Discord webhook
+  integration/           # 交易日判断、monitor bridge
+  utils/
+scripts/
+  run_premarket.py
+  run_single_stock_analysis.py
+  run_realtime_monitor.py
+  run_daily_premarket_scheduler.py
+  discord_watchlist_bot.py
+tests/
+data/
+```
+
+## 3. 本地安装
 
 ```bash
-cd intraday_ai_assistant
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 3. 配置 `.env`
+## 4. 配置 `.env`
 
 ```bash
 cp .env.example .env
+nano .env
 ```
 
-然后填写：
+至少填写：
 
 ```env
-OPENAI_API_KEY=你的OpenAI_API_Key
-DISCORD_PREMARKET_WEBHOOK_URL=已在 .env 中填入
+OPENAI_API_KEY=...
+DISCORD_PREMARKET_WEBHOOK_URL=...
+DISCORD_WEBHOOK_URL=...
+DISCORD_BOT_TOKEN=...
+DISCORD_GUILD_ID=...
+ALLOWED_DISCORD_USER_IDS=...
+WATCHLIST_ADMIN_TOKEN=...
+
 FUTU_HOST=127.0.0.1
 FUTU_PORT=11111
 FUTU_EXTENDED_TIME=true
 ```
 
-`FUTU_EXTENDED_TIME=true` is recommended for the premarket assistant so it can use
-premarket K-line context before the regular session opens.
+生成 `WATCHLIST_ADMIN_TOKEN`：
 
-> 说明：本版已根据你上传的 `discord_bot.txt` 写入 4 个 Discord webhook，并映射到盘前、开盘确认、盘中、盘后四类任务。
+```bash
+openssl rand -hex 32
+```
 
-## 4. 启动 Futu OpenD
+`FUTU_EXTENDED_TIME=true` 建议用于盘前助手，这样报告可以使用盘前 K 线环境。实时 monitor 另有 `MONITOR_EXTENDED_TIME` 和 `MONITOR_FUTU_SESSION`，默认保持常规交易时段：
 
-运行前请确保：
+```env
+MONITOR_TEST_MODE=false
+MONITOR_EXTENDED_TIME=false
+MONITOR_FUTU_SESSION=RTH
+MONITOR_ALLOW_EMPTY_ADMIN_TOKEN=false
+```
 
-1. 已启动 Futu OpenD / Moomoo OpenD。
-2. 已登录。
-3. 本机端口默认是 `127.0.0.1:11111`。
-4. 账号具备所需美股行情权限。
+`WATCHLIST_ADMIN_TOKEN` 必须设置。monitor 现在会拒绝在无 token 状态启动，除非你显式设置 `MONITOR_ALLOW_EMPTY_ADMIN_TOKEN=true` 做隔离本地测试。
 
-## 5. 运行盘前报告
+## 5. Futu / Moomoo OpenD
+
+运行前请确认：
+
+1. Futu OpenD / Moomoo OpenD 已启动并登录。
+2. OpenD 地址与 `.env` 一致，默认 `127.0.0.1:11111`。
+3. 账号具备所需美股行情权限。
+4. Docker 部署时，本项目使用 `network_mode: host` 连接本机 OpenD。
+
+## 6. 盘前报告
+
+本地 dry-run：
 
 ```bash
 python scripts/run_premarket.py --dry-run
+```
+
+非交易日或夜间测试：
+
+```bash
+python scripts/run_premarket.py \
+  --dry-run \
+  --force-run \
+  --allow-non-trading-day-test
+```
+
+真实推送 Discord：
+
+```bash
+python scripts/run_premarket.py --send-discord
+```
+
+推送 Discord，并把 A/B 级候选同步到 monitor：
+
+```bash
+python scripts/run_premarket.py --send-discord --send-to-monitor
 ```
 
 生成文件：
@@ -100,41 +139,150 @@ data/market_regime.json
 data/news_snapshot.json
 data/candidate_symbols.json
 data/evidence_pack_premarket.json
+data/technical_levels.json
 data/premarket_report.md
+data/warnings.json
 ```
 
-真实推送 Discord：
+## 7. 单只股票分析
 
 ```bash
-python scripts/run_premarket.py --send-discord
+python scripts/run_single_stock_analysis.py --symbol NVDA --dry-run
 ```
 
-## 6. 单只股票分析
+输出：
+
+```text
+data/evidence_pack_NVDA.json
+data/stock_report_NVDA.md
+```
+
+## 8. Docker 运行集成服务
 
 ```bash
-python scripts/run_single_stock_analysis.py --symbol SATS --dry-run
+docker compose build
+docker compose up -d
 ```
 
-## 7. 单元测试
+服务：
+
+```text
+monitor              # 实时 1m signal monitor + local admin API
+discord-bot          # Discord /watch add/remove/set/list
+premarket-scheduler  # 每个美股交易日运行一次盘前助手
+```
+
+查看日志：
 
 ```bash
-pytest -q
+docker compose logs -f monitor
+docker compose logs -f discord-bot
+docker compose logs -f premarket-scheduler
 ```
 
-单元测试包含 `tests/test_scripts.py`，会验证 `scripts/run_premarket.py` 和 `scripts/run_single_stock_analysis.py` 的 dry-run 执行。
+重启单个服务：
 
-## 8. 设计原则
+```bash
+docker compose up -d --force-recreate monitor
+```
+
+## 9. Monitor Watchlist
+
+查看当前 watchlist：
+
+```bash
+curl -H "X-Admin-Token: $WATCHLIST_ADMIN_TOKEN" \
+  http://127.0.0.1:8765/watchlist
+```
+
+手动添加 symbol：
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: $WATCHLIST_ADMIN_TOKEN" \
+  -d '{"symbol":"US.NVDA"}' \
+  http://127.0.0.1:8765/watchlist/add
+```
+
+Discord 手机端命令：
+
+```text
+/watch list
+/watch add symbol: NVDA
+/watch add_many symbols: SPY QQQ NVDA AMD
+/watch remove symbol: TSLA
+/watch set symbols: SPY QQQ NVDA AMD
+/watch clear
+```
+
+## 10. 夜间/非交易时段测试
+
+只测试 AI -> monitor watchlist 同步，不打开夜间实时信号：
+
+```bash
+docker compose exec premarket-scheduler python scripts/run_premarket.py \
+  --dry-run \
+  --force-run \
+  --allow-non-trading-day-test \
+  --send-to-monitor
+```
+
+如果要临时测试 monitor 夜间实时信号，在 `.env` 中改：
+
+```env
+MONITOR_TEST_MODE=true
+MONITOR_EXTENDED_TIME=true
+MONITOR_FUTU_SESSION=ALL
+```
+
+然后重启 monitor：
+
+```bash
+docker compose up -d --force-recreate monitor
+```
+
+测试完改回：
+
+```env
+MONITOR_TEST_MODE=false
+MONITOR_EXTENDED_TIME=false
+MONITOR_FUTU_SESSION=RTH
+```
+
+## 11. 测试
+
+```bash
+.venv/bin/python -m pytest -q
+```
+
+当前测试覆盖：
+
+- 技术指标
+- 市场环境评分
+- 候选股评分
+- evidence/report 校验
+- Futu mock client 与 session 配置
+- RSS ticker 匹配与错误兜底
+- premarket/single-stock dry-run 脚本
+- monitor admin token 安全检查
+
+## 12. 设计原则
 
 本项目采用：
 
 ```text
-确定性数据管道 → evidence_pack 证据包 → LLM 结构化分析 → 输出校验 → Discord 推送
+确定性数据管道 -> evidence pack -> LLM 结构化分析 -> 输出校验 -> Discord/monitor
 ```
 
-不要让 LLM 自己随意决定事实。事实、新闻、价位、技术指标优先由代码生成，LLM 只负责基于证据包做中文结构化表达。
+不要让 LLM 自己决定事实。行情、新闻、价位、技术指标优先由代码生成，LLM 只负责基于 evidence pack 做中文结构化表达。
 
-## 9. 风险提示
+## 13. 安全与风险
 
+- 不要提交 `.env`。
+- `WATCHLIST_ADMIN_TOKEN` 必须设置并妥善保存。
+- Admin API 保持绑定 `127.0.0.1`。
+- 如果 webhook、bot token、OpenAI key 曾被粘贴到聊天或公开位置，请立即轮换。
 - 本项目仅用于投资研究与交易观察辅助。
 - 不构成投资建议。
 - 不保证行情、新闻、模型输出完全准确。

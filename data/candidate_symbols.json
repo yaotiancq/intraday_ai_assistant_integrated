@@ -35,6 +35,7 @@
     "TSM",
     "WMT",
     "XLE",
+    "XLK",
     "XOM"
   ],
   "reason": {
@@ -66,7 +67,8 @@
     ],
     "COP": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "COST": [
       "core_watchlist",
@@ -139,8 +141,7 @@
     ],
     "QCOM": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "QQQ": [
       "core_watchlist",
@@ -156,7 +157,8 @@
     ],
     "SNOW": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "SOXX": [
       "news_catalyst",
@@ -182,6 +184,9 @@
     "XLE": [
       "news_catalyst"
     ],
+    "XLK": [
+      "premarket_mover"
+    ],
     "XOM": [
       "core_watchlist",
       "news_catalyst"
@@ -190,7 +195,7 @@
   "counts": {
     "core": 33,
     "news": 35,
-    "movers": 8,
-    "total": 36
+    "movers": 10,
+    "total": 37
   }
 }

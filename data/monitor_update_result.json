@@ -2,35 +2,17 @@
   "status": "ok",
   "mode": "add",
   "recommended_symbols": [
-    "US.ARM",
     "US.AMD",
-    "US.QCOM",
-    "US.MU",
-    "US.AAPL",
-    "US.SNOW",
-    "US.INTC",
-    "US.SLB",
-    "US.NOW",
-    "US.META",
-    "US.AMZN",
-    "US.ASML"
+    "US.ARM",
+    "US.SNOW"
   ],
   "monitor_result": {
     "status": "ok",
     "action": "add",
-    "symbol": "US.ASML",
+    "symbol": "US.SNOW",
     "symbols": [
-      "US.AAPL",
       "US.AMD",
-      "US.AMZN",
       "US.ARM",
-      "US.ASML",
-      "US.INTC",
-      "US.META",
-      "US.MU",
-      "US.NOW",
-      "US.QCOM",
-      "US.SLB",
       "US.SNOW"
     ]
   }
