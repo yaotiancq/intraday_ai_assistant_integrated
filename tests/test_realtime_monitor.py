@@ -10,10 +10,34 @@ os.environ['HOME'] = '/tmp'
 monitor = pytest.importorskip('scripts.run_realtime_monitor')
 
 
-def test_bar_period_configs_use_typical_breakout_lookbacks():
-    assert monitor.get_bar_period_config('1m').breakout_lookback == 20
-    assert monitor.get_bar_period_config('3m').breakout_lookback == 10
-    assert monitor.get_bar_period_config('5m').breakout_lookback == 6
+def test_bar_period_configs_use_period_specific_strategy_values():
+    one = monitor.get_bar_period_config('1m')
+    three = monitor.get_bar_period_config(None)
+    five = monitor.get_bar_period_config('5m')
+
+    assert one.breakout_lookback == 20
+    assert one.compression_bars == 4
+    assert one.ema_exit_period == 9
+    assert one.stall_bars == 3
+    assert one.max_one_bar_return == 0.010
+
+    assert three.label == '3m'
+    assert three.breakout_lookback == 8
+    assert three.breakout_lookback_minutes == 24
+    assert three.compression_bars == 2
+    assert three.compression_minutes == 6
+    assert three.ema_exit_period == 5
+    assert three.ema_exit_minutes == 15
+    assert three.stall_bars == 2
+    assert three.stall_minutes == 6
+    assert three.max_one_bar_return == 0.015
+
+    assert five.breakout_lookback == 6
+    assert five.compression_bars == 2
+    assert five.ema_exit_period == 3
+    assert five.stall_bars == 2
+    assert five.max_one_bar_return == 0.020
+
     assert monitor.get_bar_period_config('K_3M').label == '3m'
 
 
@@ -43,6 +67,8 @@ def test_engine_period_switch_resets_symbol_state():
 
         assert engine.strategy_status()['bar_period'] == '5m'
         assert engine.strategy_status()['breakout_lookback'] == 6
+        assert engine.strategy_status()['ema_exit_period'] == 3
+        assert engine.strategy_status()['max_one_bar_return'] == 0.020
         assert state.current_bar is None
         assert state.position == 'FLAT'
     finally:

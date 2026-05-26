@@ -26,7 +26,7 @@
   -> 生成盘前 evidence pack 和中文报告
   -> 报告推送到 Discord
   -> A/B 级候选股票同步到 realtime monitor
-  -> monitor 在常规交易时段监听 1m K 线信号
+  -> monitor 在常规交易时段监听 1m/3m/5m K 线信号
   -> Discord /watch 命令可随时调整 watchlist
 ```
 
@@ -97,7 +97,7 @@ openssl rand -hex 32
 MONITOR_TEST_MODE=false
 MONITOR_EXTENDED_TIME=false
 MONITOR_FUTU_SESSION=RTH
-MONITOR_BAR_PERIOD=1m
+MONITOR_BAR_PERIOD=3m
 MONITOR_ALLOW_EMPTY_ADMIN_TOKEN=false
 ```
 
@@ -246,8 +246,16 @@ Monitor 支持 `1m`、`3m`、`5m` 三种 K 线周期。切换周期时，monitor
 
 ```text
 1m -> 20 bars，约 20 分钟
-3m -> 10 bars，约 30 分钟
+3m ->  8 bars，约 24 分钟
 5m ->  6 bars，约 30 分钟
+```
+
+切换周期时，以下参数会一起切换：
+
+```text
+1m -> compression 4 bars, EMA exit 9 bars, stall 3 bars, max one-bar return 1.0%
+3m -> compression 2 bars, EMA exit 5 bars, stall 2 bars, max one-bar return 1.5%
+5m -> compression 2 bars, EMA exit 3 bars, stall 2 bars, max one-bar return 2.0%
 ```
 
 ## 10. 夜间/非交易时段测试

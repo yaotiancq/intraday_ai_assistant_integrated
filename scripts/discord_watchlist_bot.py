@@ -108,10 +108,26 @@ def format_strategy_status(data: dict) -> str:
     bar_period = data.get("bar_period", "unknown")
     breakout_lookback = data.get("breakout_lookback", "unknown")
     breakout_minutes = data.get("breakout_lookback_minutes", "unknown")
-    return (
-        f"Period: `{bar_period}` | "
-        f"Breakout lookback: `{breakout_lookback}` bars / `{breakout_minutes}` min"
-    )
+    compression_bars = data.get("compression_bars", "unknown")
+    compression_minutes = data.get("compression_minutes", "unknown")
+    ema_exit_period = data.get("ema_exit_period", "unknown")
+    ema_exit_minutes = data.get("ema_exit_minutes", "unknown")
+    stall_bars = data.get("stall_bars", "unknown")
+    stall_minutes = data.get("stall_minutes", "unknown")
+    max_one_bar_return = data.get("max_one_bar_return")
+    try:
+        max_one_bar_return_text = f"{float(max_one_bar_return) * 100:.1f}%"
+    except Exception:
+        max_one_bar_return_text = "unknown"
+
+    return "\n".join([
+        f"Period: `{bar_period}`",
+        f"Breakout: `{breakout_lookback}` bars / `{breakout_minutes}` min",
+        f"Compression: `{compression_bars}` bars / `{compression_minutes}` min",
+        f"EMA exit: `{ema_exit_period}` bars / `{ema_exit_minutes}` min",
+        f"Stall: `{stall_bars}` bars / `{stall_minutes}` min",
+        f"Max one-bar return: `{max_one_bar_return_text}`",
+    ])
 
 
 def is_allowed(interaction: discord.Interaction) -> bool:

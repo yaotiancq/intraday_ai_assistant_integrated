@@ -16,14 +16,14 @@ services:
       - --port
       - ${FUTU_PORT:-11111}
       - --symbols
-      - ${WATCH_SYMBOLS:-US.SPY,US.QQQ,US.NVDA}
+      - ${MONITOR_WATCH_SYMBOLS:-${WATCH_SYMBOLS:-US.SPY,US.QQQ,US.NVDA}}
       - --max-symbols
-      - ${MAX_SYMBOLS:-20}
+      - ${MONITOR_MAX_SYMBOLS:-${MAX_SYMBOLS:-20}}
       - --skip-snapshot-filter
       - --admin-host
-      - ${ADMIN_HOST:-127.0.0.1}
+      - ${MONITOR_ADMIN_HOST:-${ADMIN_HOST:-127.0.0.1}}
       - --admin-port
-      - ${ADMIN_PORT:-8765}
+      - ${MONITOR_ADMIN_PORT:-${ADMIN_PORT:-8765}}
     restart: unless-stopped
 
   discord-bot:

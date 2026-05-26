@@ -161,18 +161,32 @@ class BarPeriodConfig:
     minutes: int
     futu_type_name: str
     breakout_lookback: int
+    compression_bars: int
+    ema_exit_period: int
+    stall_bars: int
+    max_one_bar_return: float
 
     @property
     def breakout_lookback_minutes(self) -> int:
         return self.minutes * self.breakout_lookback
 
+    @property
+    def compression_minutes(self) -> int:
+        return self.minutes * self.compression_bars
+
+    @property
+    def ema_exit_minutes(self) -> int:
+        return self.minutes * self.ema_exit_period
+
+    @property
+    def stall_minutes(self) -> int:
+        return self.minutes * self.stall_bars
+
 
 BAR_PERIOD_CONFIGS = {
-    # 1m keeps the original 20-bar opening breakout lookback.
-    "1m": BarPeriodConfig("1m", 1, "K_1M", 20),
-    # For wider bars, use common short-window opening breakout settings.
-    "3m": BarPeriodConfig("3m", 3, "K_3M", 10),
-    "5m": BarPeriodConfig("5m", 5, "K_5M", 6),
+    "1m": BarPeriodConfig("1m", 1, "K_1M", 20, 4, 9, 3, 0.010),
+    "3m": BarPeriodConfig("3m", 3, "K_3M", 8, 2, 5, 2, 0.015),
+    "5m": BarPeriodConfig("5m", 5, "K_5M", 6, 2, 3, 2, 0.020),
 }
 
 
@@ -184,7 +198,7 @@ def _env_bool_monitor(name: str, default: bool = False) -> bool:
 
 
 def normalize_bar_period(value: str | None) -> str:
-    raw = str(value or "1m").strip().lower().replace("_", "")
+    raw = str(value or "3m").strip().lower().replace("_", "")
     aliases = {
         "1": "1m",
         "1m": "1m",
@@ -454,9 +468,10 @@ def has_pre_breakout_compression(prev_bars: List[Bar], config: BarPeriodConfig) 
     if len(prev_bars) < config.breakout_lookback:
         return False, {"reason": "not_enough_bars_for_compression"}
 
-    compression = prev_bars[-COMPRESSION_BARS:]
-    baseline = prev_bars[-config.breakout_lookback:-COMPRESSION_BARS]
-    if len(compression) < COMPRESSION_BARS or not baseline:
+    compression_bars = config.compression_bars
+    compression = prev_bars[-compression_bars:]
+    baseline = prev_bars[-config.breakout_lookback:-compression_bars]
+    if len(compression) < compression_bars or not baseline:
         return False, {"reason": "not_enough_baseline"}
 
     compression_avg_vol = mean(b.volume for b in compression)
@@ -477,6 +492,8 @@ def has_pre_breakout_compression(prev_bars: List[Bar], config: BarPeriodConfig) 
         "bar_period": config.label,
         "breakout_lookback": config.breakout_lookback,
         "breakout_lookback_minutes": config.breakout_lookback_minutes,
+        "compression_bars": config.compression_bars,
+        "compression_minutes": config.compression_minutes,
         "compression_avg_vol": round(compression_avg_vol, 2),
         "baseline_avg_vol": round(baseline_avg_vol, 2),
         "compression_avg_range": round(compression_avg_range, 4),
@@ -523,7 +540,7 @@ def detect_long_entry(bars: List[Bar], state: SymbolState, config: BarPeriodConf
     wide_range = signal_bar.range_abs >= avg_range * BREAKOUT_RANGE_MULT
     strong_close = signal_bar.close_position >= MIN_CLOSE_POSITION
     strong_body = signal_bar.body_ratio >= MIN_BODY_RATIO
-    not_overextended = safe_div(signal_bar.close - prior_close, prior_close) <= MAX_ONE_BAR_RETURN
+    not_overextended = safe_div(signal_bar.close - prior_close, prior_close) <= config.max_one_bar_return
 
     ok = all([
         close_breakout,
@@ -539,6 +556,7 @@ def detect_long_entry(bars: List[Bar], state: SymbolState, config: BarPeriodConf
         "bar_period": config.label,
         "breakout_lookback": config.breakout_lookback,
         "breakout_lookback_minutes": config.breakout_lookback_minutes,
+        "max_one_bar_return": config.max_one_bar_return,
         "signal_price": round(signal_bar.close, 4),
         "breakout_level": round(prior_high, 4),
         "bar_volume": signal_bar.volume,
@@ -575,16 +593,17 @@ def detect_long_entry(bars: List[Bar], state: SymbolState, config: BarPeriodConf
     return True, details
 
 
-def detect_long_exit(bars: List[Bar], state: SymbolState) -> Tuple[bool, str, dict]:
+def detect_long_exit(bars: List[Bar], state: SymbolState, config: BarPeriodConfig) -> Tuple[bool, str, dict]:
     if state.position != "LONG" or state.entry_price is None:
         return False, "", {"reason": "not_long"}
 
-    if len(bars) < max(EMA_EXIT_PERIOD, 3):
+    if len(bars) < max(config.ema_exit_period, 3):
         return False, "", {"reason": "not_enough_bars"}
 
     bar = bars[-1]
-    closes = [b.close for b in bars[-max(EMA_EXIT_PERIOD * 3, 30):]]
-    ema9 = ema(closes, EMA_EXIT_PERIOD)
+    ema_period = config.ema_exit_period
+    closes = [b.close for b in bars[-max(ema_period * 3, 30):]]
+    ema_value = ema(closes, ema_period)
 
     state.bars_since_entry += 1
 
@@ -601,11 +620,12 @@ def detect_long_exit(bars: List[Bar], state: SymbolState) -> Tuple[bool, str, di
     hard_stop = bar.close <= state.entry_price * (1 - STOP_LOSS_PCT)
     breakout_failed = bar.close < breakout_level * (1 - BREAKOUT_FAIL_BUFFER)
     trailing_pullback = state.high_water is not None and bar.close <= state.high_water * (1 - TRAILING_PULLBACK_PCT)
-    ema_break = ema9 is not None and bar.close < ema9
-    stall = state.bars_without_new_high >= STALL_BARS and bar.close < bars[-2].close
+    ema_break = ema_value is not None and bar.close < ema_value
+    stall = state.bars_without_new_high >= config.stall_bars and bar.close < bars[-2].close
     force_exit = bar.dt.time() >= FORCE_EXIT_TIME
 
     details = {
+        "bar_period": config.label,
         "signal_price": round(bar.close, 4),
         "entry_price": round(state.entry_price, 4),
         "entry_time": state.entry_time,
@@ -613,7 +633,11 @@ def detect_long_exit(bars: List[Bar], state: SymbolState) -> Tuple[bool, str, di
         "high_water": round(state.high_water, 4) if state.high_water is not None else None,
         "bars_since_entry": state.bars_since_entry,
         "bars_without_new_high": state.bars_without_new_high,
-        "ema9": round(ema9, 4) if ema9 is not None else None,
+        "ema_exit": round(ema_value, 4) if ema_value is not None else None,
+        "ema_exit_period": config.ema_exit_period,
+        "ema_exit_minutes": config.ema_exit_minutes,
+        "stall_bars": config.stall_bars,
+        "stall_minutes": config.stall_minutes,
         "unrealized_return_pct": round(100 * safe_div(bar.close - state.entry_price, state.entry_price), 3),
     }
 
@@ -646,7 +670,7 @@ class OpeningMomentumSignalEngine:
     ):
         self.states_lock = threading.RLock()
         self.config_lock = threading.RLock()
-        self.bar_period_config = bar_period_config or get_bar_period_config("1m")
+        self.bar_period_config = bar_period_config or get_bar_period_config("3m")
         self.states: Dict[str, SymbolState] = {code: SymbolState(code=code) for code in symbols}
         self.executor = ThreadPoolExecutor(max_workers=workers)
         self._shutdown = threading.Event()
@@ -666,6 +690,13 @@ class OpeningMomentumSignalEngine:
             "futu_type": config.futu_type_name,
             "breakout_lookback": config.breakout_lookback,
             "breakout_lookback_minutes": config.breakout_lookback_minutes,
+            "compression_bars": config.compression_bars,
+            "compression_minutes": config.compression_minutes,
+            "ema_exit_period": config.ema_exit_period,
+            "ema_exit_minutes": config.ema_exit_minutes,
+            "stall_bars": config.stall_bars,
+            "stall_minutes": config.stall_minutes,
+            "max_one_bar_return": config.max_one_bar_return,
         }
 
     def set_bar_period_config(self, config: BarPeriodConfig) -> None:
@@ -842,7 +873,11 @@ class OpeningMomentumSignalEngine:
 
             # First manage exits if virtually long.
             if state.position == "LONG":
-                should_exit, exit_reason, exit_details = detect_long_exit(bars, state)
+                should_exit, exit_reason, exit_details = detect_long_exit(
+                    bars,
+                    state,
+                    self.get_bar_period_config(),
+                )
                 if should_exit:
                     self._emit_sell_signal_locked(state, latest_bar, exit_reason, exit_details)
                 return
@@ -1327,8 +1362,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=WORKER_THREADS)
     parser.add_argument(
         "--bar-period",
-        default=os.getenv("MONITOR_BAR_PERIOD", "1m"),
-        help="K-line bar period for the realtime monitor: 1m, 3m, or 5m. Default: env MONITOR_BAR_PERIOD or 1m.",
+        default=os.getenv("MONITOR_BAR_PERIOD", "3m"),
+        help="K-line bar period for the realtime monitor: 1m, 3m, or 5m. Default: env MONITOR_BAR_PERIOD or 3m.",
     )
     parser.add_argument(
         "--skip-snapshot-filter",
