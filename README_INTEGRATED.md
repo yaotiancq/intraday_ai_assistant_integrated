@@ -55,6 +55,11 @@ ALLOWED_DISCORD_USER_IDS=...
 WATCHLIST_ADMIN_TOKEN=...
 ```
 
+For the premarket assistant, keep `FUTU_EXTENDED_TIME=true` if you want
+premarket K-line context before regular trading hours. The realtime monitor has
+separate `MONITOR_EXTENDED_TIME` and `MONITOR_FUTU_SESSION` settings and remains
+regular-hours-only by default.
+
 ## Build and run
 
 ```bash
@@ -135,5 +140,8 @@ Then restart monitor again.
 
 - Do not commit `.env`.
 - Keep admin API bound to `127.0.0.1`.
+- Keep `WATCHLIST_ADMIN_TOKEN` set. The monitor refuses to start without it
+  unless `MONITOR_ALLOW_EMPTY_ADMIN_TOKEN=true` is explicitly enabled for an
+  isolated local test.
 - This system is signal-only; it does not place orders.
 - Rotate any webhook or bot token that has been pasted into chat or shared externally.

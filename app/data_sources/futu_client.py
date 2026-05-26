@@ -79,9 +79,10 @@ class FutuQuoteClient:
         code = normalize_us_symbol(symbol, self.market_prefix)
         subtype = self._subtype(ktype)
         kltype = self._kltype(ktype)
-        kwargs = {'subscribe_push': False}
-        if hasattr(self.futu, 'Session') and hasattr(self.futu.Session, 'ALL'):
-            kwargs['session'] = self.futu.Session.ALL
+        kwargs = {'subscribe_push': False, 'extended_time': self.extended_time}
+        session = self._session()
+        if session is not None:
+            kwargs['session'] = session
         ret, msg = self.ctx.subscribe([code], [subtype], **kwargs)
         if ret != self.futu.RET_OK:
             raise RuntimeError(f'subscribe failed for {code}: {msg}')
@@ -101,8 +102,9 @@ class FutuQuoteClient:
         code = normalize_us_symbol(symbol, self.market_prefix)
         subtype = self._kltype(ktype)
         kwargs = dict(code=code, start=start, end=end, ktype=subtype, max_count=max_count)
-        if hasattr(self.futu, 'Session') and hasattr(self.futu.Session, 'ALL'):
-            kwargs['session'] = self.futu.Session.ALL
+        session = self._session()
+        if session is not None:
+            kwargs['session'] = session
         ret, data, page_req_key = self.ctx.request_history_kline(**kwargs)
         if ret != self.futu.RET_OK:
             raise RuntimeError(f'request_history_kline failed for {code}: {data}')
@@ -125,6 +127,14 @@ class FutuQuoteClient:
         if hasattr(self.futu, 'KLType') and hasattr(self.futu.KLType, name):
             return getattr(self.futu.KLType, name)
         return getattr(self.futu.SubType, name)
+
+    def _session(self) -> Any:
+        if not hasattr(self.futu, 'Session'):
+            return None
+        session_name = 'ALL' if self.extended_time else 'RTH'
+        if hasattr(self.futu.Session, session_name):
+            return getattr(self.futu.Session, session_name)
+        return None
 
     @staticmethod
     def _first(row: Dict[str, Any], candidates: List[str], default: Any = None) -> Any:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterable, List, Set
 import re
 try:
@@ -29,41 +30,55 @@ EVENT_KEYWORDS = {
 @dataclass
 class NewsRSSClient:
     urls: List[str]
-    timeout: int = 15
+    timeout: int = 8
+    max_workers: int = 8
 
     def fetch(self, allowed_symbols: Iterable[str] | None = None) -> List[Dict[str, Any]]:
         allowed = {s.upper() for s in allowed_symbols} if allowed_symbols else set()
+        urls = [url.strip() for url in self.urls if url and url.strip()]
+        if not urls:
+            return []
+
+        if len(urls) == 1:
+            return self._fetch_url(urls[0], allowed)
+
         items: List[Dict[str, Any]] = []
-        for url in self.urls:
-            if not url:
-                continue
-            try:
-                raw = requests.get(url, timeout=self.timeout, headers={'User-Agent': 'intraday-ai-assistant/1.0'})
-                raw.raise_for_status()
-                if feedparser is None:
-                    # Minimal fallback: dependency not installed; preserve warning instead of crashing.
-                    raise RuntimeError('feedparser is not installed; run pip install -r requirements.txt')
-                feed = feedparser.parse(raw.content)
-                for entry in feed.entries:
-                    item = self._entry_to_item(entry, url, allowed)
-                    if item:
-                        items.append(item)
-            except Exception as exc:
-                items.append({
-                    'title': 'RSS fetch failed',
-                    'source': url,
-                    'url': url,
-                    'published_at': None,
-                    'retrieved_at': datetime.now(timezone.utc).isoformat(),
-                    'summary': str(exc),
-                    'related_symbols': [],
-                    'event_type': 'warning',
-                    'sentiment': 'neutral',
-                    'credibility': 'rss_source',
-                    'confidence': 'low',
-                    'news_score': 0,
-                    'is_error': True,
-                })
+        workers = max(1, min(self.max_workers, len(urls)))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(self._fetch_url, url, allowed) for url in urls]
+            for future in as_completed(futures):
+                items.extend(future.result())
+        return items
+
+    def _fetch_url(self, url: str, allowed: Set[str]) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
+        try:
+            raw = requests.get(url, timeout=self.timeout, headers={'User-Agent': 'intraday-ai-assistant/1.0'})
+            raw.raise_for_status()
+            if feedparser is None:
+                # Minimal fallback: dependency not installed; preserve warning instead of crashing.
+                raise RuntimeError('feedparser is not installed; run pip install -r requirements.txt')
+            feed = feedparser.parse(raw.content)
+            for entry in feed.entries:
+                item = self._entry_to_item(entry, url, allowed)
+                if item:
+                    items.append(item)
+        except Exception as exc:
+            items.append({
+                'title': 'RSS fetch failed',
+                'source': url,
+                'url': url,
+                'published_at': None,
+                'retrieved_at': datetime.now(timezone.utc).isoformat(),
+                'summary': str(exc),
+                'related_symbols': [],
+                'event_type': 'warning',
+                'sentiment': 'neutral',
+                'credibility': 'rss_source',
+                'confidence': 'low',
+                'news_score': 0,
+                'is_error': True,
+            })
         return items
 
     def _entry_to_item(self, entry: Any, source_url: str, allowed: Set[str]) -> Dict[str, Any] | None:

@@ -29,6 +29,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, time as dtime
+from hmac import compare_digest
 from typing import Deque, Dict, Iterable, List, Optional, Tuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -104,6 +105,7 @@ HEARTBEAT_SECONDS = 30
 ADMIN_HOST = "127.0.0.1"
 ADMIN_PORT = 8765
 ADMIN_TOKEN_ENV = "WATCHLIST_ADMIN_TOKEN"
+ADMIN_ALLOW_EMPTY_TOKEN_ENV = "MONITOR_ALLOW_EMPTY_ADMIN_TOKEN"
 
 
 def _env_bool_monitor(name: str, default: bool = False) -> bool:
@@ -113,18 +115,21 @@ def _env_bool_monitor(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _env_session() -> object:
+def _env_session_name() -> str:
     value = os.getenv("MONITOR_FUTU_SESSION", "RTH").strip().upper()
     if _env_bool_monitor("MONITOR_TEST_MODE", False):
         value = "ALL"
-    if value == "ALL":
-        return Session.ALL
-    return Session.RTH
+    return "ALL" if value == "ALL" else "RTH"
+
+
+def _session_from_name(value: str) -> object:
+    return Session.ALL if value == "ALL" else Session.RTH
 
 
 MONITOR_TEST_MODE = _env_bool_monitor("MONITOR_TEST_MODE", False)
 MONITOR_EXTENDED_TIME = _env_bool_monitor("MONITOR_EXTENDED_TIME", MONITOR_TEST_MODE)
-MONITOR_FUTU_SESSION = _env_session()
+MONITOR_FUTU_SESSION_NAME = _env_session_name()
+MONITOR_FUTU_SESSION = _session_from_name(MONITOR_FUTU_SESSION_NAME)
 
 # Default production behavior: regular trading hours only.
 # Test override: MONITOR_TEST_MODE=true allows all-day windows and all-session subscription.
@@ -884,7 +889,7 @@ class WatchlistAdminHandler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         if not self.token:
             return True
-        return self.headers.get("X-Admin-Token", "") == self.token
+        return compare_digest(self.headers.get("X-Admin-Token", ""), self.token)
 
     def do_GET(self) -> None:
         if not self._authorized():
@@ -1044,7 +1049,8 @@ def subscribe_realtime_1m(quote_ctx: OpenQuoteContext, symbols: List[str]) -> No
     print_json("SUBSCRIBED", {
         "symbols": symbols,
         "subtypes": ["K_1M"],
-        "session": "RTH",
+        "session": MONITOR_FUTU_SESSION_NAME,
+        "extended_time": MONITOR_EXTENDED_TIME,
     })
 
 
@@ -1099,6 +1105,12 @@ def parse_args() -> argparse.Namespace:
         default=os.getenv(ADMIN_TOKEN_ENV, ""),
         help="Admin API token. Prefer setting WATCHLIST_ADMIN_TOKEN in the environment.",
     )
+    parser.add_argument(
+        "--allow-empty-admin-token",
+        action="store_true",
+        default=_env_bool_monitor(ADMIN_ALLOW_EMPTY_TOKEN_ENV, False),
+        help="Allow an unauthenticated admin API. Only use for isolated local tests.",
+    )
     return parser.parse_args()
 
 
@@ -1108,6 +1120,21 @@ def main() -> int:
     if not candidates:
         print_json("ERROR", {"reason": "empty_symbol_list"})
         return 2
+    if not args.admin_token and not args.allow_empty_admin_token:
+        print_json("ERROR", {
+            "reason": "missing_admin_token",
+            "message": (
+                f"Set {ADMIN_TOKEN_ENV} to protect the watchlist admin API. "
+                f"For isolated local tests only, set {ADMIN_ALLOW_EMPTY_TOKEN_ENV}=true "
+                "or pass --allow-empty-admin-token."
+            ),
+        })
+        return 2
+    if not args.admin_token and args.allow_empty_admin_token:
+        print_json("WARN", {
+            "reason": "empty_admin_token_allowed",
+            "message": "Watchlist admin API is unauthenticated for this run.",
+        })
 
     quote_ctx = create_quote_context(args.host, args.port)
 
@@ -1145,6 +1172,8 @@ def main() -> int:
             "symbol_count": len(symbols),
             "symbols": symbols,
             "monitor_test_mode": MONITOR_TEST_MODE,
+            "monitor_extended_time": MONITOR_EXTENDED_TIME,
+            "monitor_futu_session": MONITOR_FUTU_SESSION_NAME,
         })
 
         last_heartbeat = 0.0
@@ -1152,8 +1181,10 @@ def main() -> int:
             now = time.time()
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
                 last_heartbeat = now
+                current_symbols = engine.list_symbols()
                 print_json("HEARTBEAT", {
-                    "symbol_count": len(symbols),
+                    "symbol_count": len(current_symbols),
+                    "symbols": current_symbols,
                     "state": "running",
                 })
             time.sleep(1)

@@ -37,7 +37,12 @@ def main() -> None:
         warnings.append('DEMO_MODE=true，使用模拟行情。')
     else:
         try:
-            qc = FutuQuoteClient(settings.futu_host, settings.futu_port, settings.futu_market_prefix)
+            qc = FutuQuoteClient(
+                host=settings.futu_host,
+                port=settings.futu_port,
+                market_prefix=settings.futu_market_prefix,
+                extended_time=settings.futu_extended_time,
+            )
         except Exception as exc:
             qc = MockQuoteClient()
             warnings.append(f'Futu 初始化失败，使用模拟行情：{exc}')

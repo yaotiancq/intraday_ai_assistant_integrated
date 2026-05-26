@@ -200,7 +200,12 @@ def _make_quote_client(settings, warnings: List[str]):
         warnings.append('DEMO_MODE=true，当前使用模拟行情；接入实盘前请改为 false 并启动 Futu/Moomoo OpenD。')
         return MockQuoteClient()
     try:
-        return FutuQuoteClient(settings.futu_host, settings.futu_port, settings.futu_market_prefix)
+        return FutuQuoteClient(
+            host=settings.futu_host,
+            port=settings.futu_port,
+            market_prefix=settings.futu_market_prefix,
+            extended_time=settings.futu_extended_time,
+        )
     except Exception as exc:
         warnings.append(f'FutuQuoteClient initialization failed, fallback to mock: {exc}')
         return MockQuoteClient()

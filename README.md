@@ -70,7 +70,11 @@ OPENAI_API_KEY=你的OpenAI_API_Key
 DISCORD_PREMARKET_WEBHOOK_URL=已在 .env 中填入
 FUTU_HOST=127.0.0.1
 FUTU_PORT=11111
+FUTU_EXTENDED_TIME=true
 ```
+
+`FUTU_EXTENDED_TIME=true` is recommended for the premarket assistant so it can use
+premarket K-line context before the regular session opens.
 
 > 说明：本版已根据你上传的 `discord_bot.txt` 写入 4 个 Discord webhook，并映射到盘前、开盘确认、盘中、盘后四类任务。
 
