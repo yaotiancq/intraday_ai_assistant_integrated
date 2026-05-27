@@ -35,7 +35,6 @@
     "TSM",
     "WMT",
     "XLE",
-    "XLK",
     "XOM"
   ],
   "reason": {
@@ -45,8 +44,7 @@
     ],
     "AMD": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "AMZN": [
       "core_watchlist",
@@ -54,8 +52,7 @@
     ],
     "ARM": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "ASML": [
       "core_watchlist",
@@ -67,8 +64,7 @@
     ],
     "COP": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "COST": [
       "core_watchlist",
@@ -92,12 +88,10 @@
     ],
     "INTC": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "IWM": [
-      "core_watchlist",
-      "news_catalyst"
+      "core_watchlist"
     ],
     "JNJ": [
       "core_watchlist",
@@ -138,7 +132,8 @@
     ],
     "PLTR": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "QCOM": [
       "core_watchlist",
@@ -171,7 +166,8 @@
     ],
     "TSLA": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "TSM": [
       "core_watchlist",
@@ -185,18 +181,16 @@
     "XLE": [
       "news_catalyst"
     ],
-    "XLK": [
-      "premarket_mover"
-    ],
     "XOM": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ]
   },
   "counts": {
     "core": 33,
-    "news": 36,
-    "movers": 10,
-    "total": 37
+    "news": 35,
+    "movers": 8,
+    "total": 36
   }
 }

@@ -428,7 +428,8 @@ def send_discord_webhook_async(msg: dict) -> None:
                 data=raw,
                 headers={
                     "Content-Type": "application/json",
-                    "User-Agent": "monitor/1.0",
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0",
                 },
                 method="POST",
             )

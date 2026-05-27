@@ -2,14 +2,12 @@
   "status": "ok",
   "mode": "add",
   "recommended_symbols": [
-    "US.SNOW",
-    "US.AMD",
-    "US.ARM"
+    "US.MU"
   ],
   "monitor_result": {
     "status": "ok",
     "action": "noop",
-    "symbol": "US.ARM",
+    "symbol": "US.MU",
     "symbols": [
       "US.AAPL",
       "US.AMD",
@@ -28,7 +26,6 @@
       "US.PLTR",
       "US.QCOM",
       "US.SNDK",
-      "US.SNOW",
       "US.STX",
       "US.TSLA",
       "US.TSM",
