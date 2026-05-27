@@ -22,3 +22,4 @@ logs/
 *.tar
 
 oracle.txt
+*.key
