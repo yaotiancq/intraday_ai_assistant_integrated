@@ -41,15 +41,14 @@ services:
 
   premarket-scheduler:
     image: intraday-ai-assistant-integrated:latest
-    container_name: premarket-ai-scheduler
+    container_name: premarket-scheduler
     network_mode: host
     env_file:
       - .env
+    command:
+      - bash
+      - /app/ops/premarket_loop.sh
     volumes:
       - ./data:/app/data
-    command:
-      - python
-      - scripts/run_daily_premarket_scheduler.py
-    depends_on:
-      - monitor
+      - ./logs:/app/logs
     restart: unless-stopped

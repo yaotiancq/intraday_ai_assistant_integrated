@@ -44,6 +44,8 @@ app/
   delivery/              # Discord webhook
   integration/           # 交易日判断、monitor bridge
   utils/
+ops/
+  premarket_loop.sh
 scripts/
   run_premarket.py
   run_single_stock_analysis.py
@@ -68,6 +70,7 @@ pip install -r requirements.txt
 cp .env.example .env
 nano .env
 ```
+.env and docker-compose.yml should upload to the project root path
 
 至少填写：
 

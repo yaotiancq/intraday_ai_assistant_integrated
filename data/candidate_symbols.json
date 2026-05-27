@@ -96,7 +96,8 @@
       "premarket_mover"
     ],
     "IWM": [
-      "core_watchlist"
+      "core_watchlist",
+      "news_catalyst"
     ],
     "JNJ": [
       "core_watchlist",
@@ -194,7 +195,7 @@
   },
   "counts": {
     "core": 33,
-    "news": 35,
+    "news": 36,
     "movers": 10,
     "total": 37
   }
