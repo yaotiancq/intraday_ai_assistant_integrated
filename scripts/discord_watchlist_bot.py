@@ -157,7 +157,7 @@ async def admin_post(path: str, payload: dict) -> dict:
         async with session.post(
             f"{ADMIN_API_URL}{path}",
             json=payload,
-            timeout=20,
+            timeout=aiohttp.ClientTimeout(total=90),
         ) as resp:
             data = await resp.json()
 
@@ -294,7 +294,35 @@ async def watch_period(interaction: discord.Interaction, period: app_commands.Ch
         )
 
     except Exception as exc:
-        await interaction.followup.send(f"Error: `{exc}`", ephemeral=True)
+        # Backend may have switched the period successfully even if
+        # the HTTP response was not received cleanly.
+        try:
+            status = await admin_get("/strategy")
+            current_period = status.get("bar_period")
+
+            if current_period == period.value:
+                symbols = status.get("symbols", [])
+                await interaction.followup.send(
+                    "Period switched successfully, but the admin API response was not received cleanly.\n"
+                    f"{format_strategy_status(status)}\n"
+                    f"Current watchlist: `{format_symbols(symbols)}`\n"
+                    f"API warning: `{type(exc).__name__}: {repr(exc)}`",
+                    ephemeral=True,
+                )
+                return
+
+        except Exception as verify_exc:
+            await interaction.followup.send(
+                f"Error: `{type(exc).__name__}: {repr(exc)}`\n"
+                f"Status verification also failed: `{type(verify_exc).__name__}: {repr(verify_exc)}`",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            f"Error: `{type(exc).__name__}: {repr(exc)}`",
+            ephemeral=True,
+        )
 
 
 @watch_group.command(name="status", description="Show monitor period and watchlist")

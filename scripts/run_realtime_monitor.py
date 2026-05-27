@@ -1123,13 +1123,21 @@ class WatchlistAdminHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         return
 
-    def _send_json(self, status: int, payload: dict) -> None:
+    def _send_json(self, status: int, payload: dict) -> bool:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
+
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return True
+
+        except (BrokenPipeError, ConnectionResetError):
+            # Client disconnected before the response was fully written.
+            # This is not a monitor business failure.
+            return False
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -1188,6 +1196,10 @@ class WatchlistAdminHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.controller.set_bar_period(period))
                 return
             self._send_json(404, {"status": "error", "error": "not_found"})
+        except (BrokenPipeError, ConnectionResetError):
+            # Client disconnected. Do not try to write another error response.
+            return
+
         except Exception as exc:
             self._send_json(400, {"status": "error", "error": str(exc)})
 
