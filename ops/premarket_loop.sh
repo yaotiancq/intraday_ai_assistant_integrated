@@ -6,20 +6,39 @@ mkdir -p data logs
 
 RUN_TIME="${PREMARKET_RUN_TIME:-05:45}"
 TIMEZONE="${TIMEZONE:-America/Los_Angeles}"
-INTERVAL_SECONDS="${PREMARKET_LOOP_INTERVAL_SECONDS:-30}"
+INTERVAL_SECONDS="${PREMARKET_LOOP_INTERVAL_SECONDS:-${PREMARKET_SCHEDULER_POLL_SECONDS:-30}}"
 
 echo "[premarket-loop] started"
 echo "[premarket-loop] timezone=$TIMEZONE run_time=$RUN_TIME interval=${INTERVAL_SECONDS}s"
 
+run_premarket_once() {
+  local force_run="${1:-false}"
+
+  CMD=(python scripts/run_premarket.py)
+
+  if [ "${PREMARKET_SEND_DISCORD:-true}" = "true" ]; then
+    CMD+=(--send-discord)
+  fi
+
+  if [ "${PREMARKET_SEND_TO_MONITOR:-true}" = "true" ]; then
+    CMD+=(--send-to-monitor)
+  fi
+
+  if [ "${PREMARKET_DRY_RUN:-false}" = "true" ]; then
+    CMD+=(--dry-run)
+  fi
+
+  if [ "$force_run" = "true" ]; then
+    CMD+=(--force-run --allow-non-trading-day-test)
+  fi
+
+  echo "[premarket-loop] exec: ${CMD[*]}"
+  "${CMD[@]}" 2>&1 | tee -a logs/premarket.log
+}
+
 if [ "${PREMARKET_TEST_RUN_ON_START:-false}" = "true" ]; then
   echo "[premarket-loop] PREMARKET_TEST_RUN_ON_START=true, running once immediately"
-
-  python scripts/run_premarket.py \
-    --dry-run \
-    --force-run \
-    --allow-non-trading-day-test \
-    --send-to-monitor \
-    2>&1 | tee -a logs/premarket.log || true
+  run_premarket_once true || true
 fi
 
 while true; do
@@ -30,9 +49,7 @@ while true; do
   if [ "$NOW" = "$RUN_TIME" ] && [ ! -f "$FLAG_FILE" ]; then
     echo "[premarket-loop] running premarket task at ${TODAY} ${NOW} ${TIMEZONE}"
 
-    python scripts/run_premarket.py \
-      --send-to-monitor \
-      2>&1 | tee -a logs/premarket.log
+    run_premarket_once false
 
     touch "$FLAG_FILE"
   fi
