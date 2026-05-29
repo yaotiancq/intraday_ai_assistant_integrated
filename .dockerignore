@@ -8,3 +8,6 @@ venv/
 data/*.json
 data/*.md
 data/*.txt
+*.gz
+*.key
+oracle.txt
