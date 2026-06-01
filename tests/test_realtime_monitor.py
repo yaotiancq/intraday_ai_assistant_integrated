@@ -75,6 +75,15 @@ def test_engine_period_switch_resets_symbol_state():
         engine.shutdown()
 
 
+def test_unsubscribe_not_subscribed_message_is_nonfatal_noop():
+    assert monitor.is_unsubscribe_not_subscribed_message(
+        "KL_1Min for US.AAPL has not been subscribed. Cannot unsubscribe."
+    )
+    assert not monitor.is_unsubscribe_not_subscribed_message(
+        "Minimum subscription duration is 1 minute"
+    )
+
+
 def test_monitor_refuses_empty_admin_token(tmp_path: Path):
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()

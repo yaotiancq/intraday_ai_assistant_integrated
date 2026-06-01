@@ -963,6 +963,18 @@ def normalize_symbol(raw: str) -> str:
     return symbol
 
 
+def is_unsubscribe_not_subscribed_message(message: object) -> bool:
+    text = str(message or "").lower()
+    return (
+        "unsubscribe" in text
+        and (
+            "not been subscribed" in text
+            or "has not been subscribed" in text
+            or "not subscribed" in text
+        )
+    )
+
+
 class WatchlistAdminController:
     """
     Thin control layer used by the local HTTP admin server.
@@ -1003,23 +1015,25 @@ class WatchlistAdminController:
         try:
             ret, message = self.quote_ctx.unsubscribe(symbols, [_subtype_for_period(config)])
         except Exception as exc:
+            benign_not_subscribed = is_unsubscribe_not_subscribed_message(exc)
             print_json("WARN", {
-                "reason": "unsubscribe_failed",
+                "reason": "unsubscribe_noop_not_subscribed" if benign_not_subscribed else "unsubscribe_failed",
                 "symbols": symbols,
                 "bar_period": config.label,
                 "message": str(exc),
             })
-            if strict:
+            if strict and not benign_not_subscribed:
                 raise
             return
         if ret != RET_OK:
+            benign_not_subscribed = is_unsubscribe_not_subscribed_message(message)
             print_json("WARN", {
-                "reason": "unsubscribe_failed",
+                "reason": "unsubscribe_noop_not_subscribed" if benign_not_subscribed else "unsubscribe_failed",
                 "symbols": symbols,
                 "bar_period": config.label,
                 "message": str(message),
             })
-            if strict:
+            if strict and not benign_not_subscribed:
                 raise RuntimeError(f"Futu unsubscribe failed for {symbols}: {message}")
 
     def _bootstrap_symbol(self, code: str, config: BarPeriodConfig) -> None:
