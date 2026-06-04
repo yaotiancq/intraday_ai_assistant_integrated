@@ -342,6 +342,135 @@ def test_earnings_relevance_is_not_raw_ticker_relevance():
     assert compute_earnings_relevance_score(weak) < 0.5
 
 
+def test_earnings_preview_ranks_above_insider_sale():
+    selected = select_relevant_media_updates(
+        [
+            _dated_media("DocuSign insider selling update", published_at="2026-06-03T12:00:00"),
+            _dated_media(
+                "DocuSign Q1 earnings preview: EPS and revenue estimates",
+                published_at="2026-06-03T13:00:00",
+                description="Analysts discuss consensus estimates before the report.",
+            ),
+        ],
+        max_items=2,
+    )
+
+    assert selected[0].title.startswith("DocuSign Q1 earnings preview")
+    assert all("insider selling" not in item.title.lower() for item in selected)
+
+
+def test_earnings_result_ranks_above_product_announcement():
+    selected = select_relevant_media_updates(
+        [
+            _dated_media("DocuSign announces new AI product", published_at="2026-06-05T12:00:00"),
+            _dated_media(
+                "DocuSign earnings results beat revenue estimates",
+                published_at="2026-06-05T13:00:00",
+                description="Shares react after the earnings report.",
+            ),
+        ],
+        max_items=2,
+    )
+
+    assert selected[0].title.startswith("DocuSign earnings results")
+    assert all("AI product" not in item.title for item in selected)
+
+
+def test_low_ticker_relevance_is_filtered_out():
+    selected = select_relevant_media_updates(
+        [
+            _dated_media(
+                "DocuSign Q1 earnings preview: EPS and revenue estimates",
+                published_at="2026-06-03T12:00:00",
+                ticker_relevance=0.10,
+            ),
+            _dated_media(
+                "DocuSign Q1 earnings preview: analyst consensus",
+                published_at="2026-06-03T13:00:00",
+                ticker_relevance=0.80,
+            ),
+        ],
+        max_items=3,
+    )
+
+    assert len(selected) == 1
+    assert selected[0].ticker_relevance_score == 0.80
+
+
+def test_timing_boost_works_before_and_after_report_date():
+    timely_preview = _dated_media(
+        "DocuSign Q1 earnings preview: analyst EPS estimates",
+        published_at="2026-06-03T12:00:00",
+    )
+    old_preview = _dated_media(
+        "DocuSign Q1 earnings preview: analyst EPS estimates",
+        published_at="2026-05-15T12:00:00",
+    )
+    timely_result = _dated_media(
+        "DocuSign earnings results beat revenue estimates",
+        published_at="2026-06-05T12:00:00",
+    )
+    early_result = _dated_media(
+        "DocuSign earnings results beat revenue estimates",
+        published_at="2026-05-25T12:00:00",
+    )
+
+    assert compute_earnings_relevance_score(timely_preview) > compute_earnings_relevance_score(old_preview)
+    assert compute_earnings_relevance_score(timely_result) > compute_earnings_relevance_score(early_result)
+
+
+def test_duplicate_and_reposted_articles_are_removed():
+    selected = select_relevant_media_updates(
+        [
+            _dated_media(
+                "DocuSign Q1 earnings preview: EPS and revenue estimates",
+                published_at="2026-06-03T12:00:00",
+                source="MSN",
+                url="https://msn.com/reposted-docu",
+            ),
+            _dated_media(
+                "DOCU Stock: DocuSign Q1 earnings preview EPS revenue estimates",
+                published_at="2026-06-03T12:05:00",
+                source="Reuters",
+                url="https://reuters.com/original-docu",
+            ),
+        ],
+        max_items=3,
+    )
+
+    assert len(selected) == 1
+    assert selected[0].source == "Reuters"
+
+
+def test_fallback_behavior_when_no_highly_relevant_articles_exist():
+    selected = select_relevant_media_updates(
+        [
+            _dated_media("DocuSign quarterly report filed", published_at="2026-06-03T12:00:00"),
+            _dated_media("DocuSign stock update before annual meeting", published_at="2026-06-03T13:00:00"),
+            _dated_media("DocuSign shareholder proposal results", published_at="2026-06-03T14:00:00"),
+        ],
+        max_items=3,
+    )
+
+    assert 1 <= len(selected) <= 2
+    assert all(item.low_earnings_relevance for item in selected)
+    assert all(item.earnings_relevance_reason == "low relevance fallback" for item in selected)
+
+
+def test_sentiment_does_not_inflate_earnings_relevance():
+    positive_product = _dated_media("DocuSign launches AI product", published_at="2026-06-03T12:00:00")
+    positive_product.ticker_sentiment_score = 0.95
+    positive_product.ticker_sentiment_label = "Bullish"
+    neutral_preview = _dated_media(
+        "DocuSign Q1 earnings preview: EPS and revenue estimates",
+        published_at="2026-06-03T12:00:00",
+    )
+    neutral_preview.ticker_sentiment_score = 0.0
+    neutral_preview.ticker_sentiment_label = "Neutral"
+
+    assert compute_earnings_relevance_score(neutral_preview) > compute_earnings_relevance_score(positive_product)
+
+
 def _media(title: str, description: str | None = None) -> MediaUpdate:
     return MediaUpdate(
         symbol="DOCU",
@@ -352,6 +481,30 @@ def _media(title: str, description: str | None = None) -> MediaUpdate:
         published_at="2026-06-04T12:00:00",
         summary=f"DOCU: {title}",
         description=description,
+    )
+
+
+def _dated_media(
+    title: str,
+    *,
+    published_at: str,
+    report_date: str = "2026-06-04",
+    description: str | None = None,
+    ticker_relevance: float = 1.0,
+    source: str = "Example",
+    url: str | None = None,
+) -> MediaUpdate:
+    return MediaUpdate(
+        symbol="DOCU",
+        report_date=report_date,
+        title=title,
+        source=source,
+        url=url or f"https://example.com/{abs(hash(title + published_at))}",
+        published_at=published_at,
+        summary=f"DOCU: {title}",
+        description=description,
+        relevance_score=ticker_relevance,
+        ticker_relevance_score=ticker_relevance,
     )
 
 

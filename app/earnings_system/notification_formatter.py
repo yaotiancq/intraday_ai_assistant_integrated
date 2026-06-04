@@ -88,6 +88,7 @@ def format_media_digest(symbol: str, report_date: str, updates: list[MediaUpdate
             f"earnings relevance `{_fmt_num(update.earnings_relevance_score)}` | "
             f"ticker relevance `{_fmt_num(update.ticker_relevance_score or update.relevance_score)}`"
         )
+        lines.append(f"   Reason: {update.earnings_relevance_reason or 'earnings-related'}")
         if update.description:
             lines.append(f"   {update.description[:240]}")
         if update.url:
