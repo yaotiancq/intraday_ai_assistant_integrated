@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .market_reaction_analyzer import MarketReactionAnalysis
-from .media_update_analyzer import MediaUpdate
+from .media_update_analyzer import MediaUpdate, aggregate_news_sentiment, ensure_earnings_relevance_scores
 from .models import EarningsCalendarEvent, PostEarningsAnalysis, PreEarningsPreview
 
 
@@ -62,15 +62,37 @@ def format_earnings_reminder(event: EarningsCalendarEvent) -> str:
     ])
 
 
-def format_media_update(update: MediaUpdate) -> str:
-    return "\n".join([
-        f"**Earnings media update: {update.symbol}**",
-        f"Report date: `{update.report_date}`",
-        f"Title: {update.title}",
-        f"Source: `{update.source or 'unknown'}`",
-        f"Published: `{update.published_at or 'unknown'}`",
-        f"URL: {update.url or 'n/a'}",
-    ])
+def format_media_digest(symbol: str, report_date: str, updates: list[MediaUpdate]) -> str:
+    ensure_earnings_relevance_scores(updates)
+    sentiment = aggregate_news_sentiment(updates)
+    lines = [
+        f"**Earnings media digest: {symbol}**",
+        f"Report date: `{report_date}`",
+        f"Selected news items: `{len(updates)}`",
+        "",
+        "Earnings News Sentiment",
+        f"Aggregate tone: `{sentiment['label']}` (`{_fmt_num(sentiment['score'])}`)",
+        f"Articles with sentiment: `{sentiment['sentiment_item_count']}` / `{sentiment['article_count']}`",
+        f"Interpretation: {sentiment['interpretation']}",
+        "",
+        "Top earnings-related articles:",
+    ]
+    for index, update in enumerate(updates, start=1):
+        source = f" ({update.source})" if update.source else ""
+        published = f" `{update.published_at}`" if update.published_at else ""
+        lines.append(f"{index}. {update.title}{source}{published}")
+        lines.append(
+            "   "
+            f"Ticker sentiment: `{update.ticker_sentiment_label or 'n/a'}` "
+            f"score `{_fmt_num(update.ticker_sentiment_score)}` | "
+            f"earnings relevance `{_fmt_num(update.earnings_relevance_score)}` | "
+            f"ticker relevance `{_fmt_num(update.ticker_relevance_score or update.relevance_score)}`"
+        )
+        if update.description:
+            lines.append(f"   {update.description[:240]}")
+        if update.url:
+            lines.append(f"   {update.url}")
+    return "\n".join(lines)
 
 
 def format_post_earnings_analysis(
@@ -135,4 +157,3 @@ def _fmt_pct(value: float | None) -> str:
 
 def _fmt_pct_ratio(value: float | None) -> str:
     return "n/a" if value is None else f"{value * 100:.0f}%"
-

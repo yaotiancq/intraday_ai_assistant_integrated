@@ -18,13 +18,17 @@ from .market_reaction_analyzer import (
     has_meaningful_reaction_change,
     reaction_publish_payload,
 )
-from .media_update_analyzer import fetch_media_updates, media_publish_payload
+from .media_update_analyzer import (
+    fetch_media_updates,
+    media_digest_publish_payload,
+    select_relevant_media_updates,
+)
 from .models import EarningsCalendarEvent, MarketReactionAnalysis, PostEarningsAnalysis, PreEarningsPreview
 from .notification_formatter import (
     format_calendar_summary,
     format_earnings_reminder,
     format_market_reaction,
-    format_media_update,
+    format_media_digest,
     format_post_earnings_analysis,
     format_pre_earnings_preview,
 )
@@ -60,6 +64,12 @@ class EarningsWorkflowResult:
     published_messages: list[str] = field(default_factory=list)
     skipped_messages: int = 0
     warnings: list[str] = field(default_factory=list)
+    candidate_symbols: int = 0
+    published_symbols: int = 0
+    published_news_items: int = 0
+    skipped_symbols: int = 0
+    skipped_reasons: dict[str, str] = field(default_factory=dict)
+    _published_symbol_names: set[str] = field(default_factory=set, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +82,11 @@ class EarningsWorkflowResult:
             "market_reactions": [x.to_dict() for x in self.market_reactions],
             "published_count": len(self.published_messages),
             "skipped_messages": self.skipped_messages,
+            "candidate_symbols": self.candidate_symbols,
+            "published_symbols": self.published_symbols,
+            "published_news_items": self.published_news_items,
+            "skipped_symbols": self.skipped_symbols,
+            "skipped_reasons": self.skipped_reasons,
             "warnings": self.warnings,
         }
 
@@ -144,6 +159,7 @@ def run_earnings_workflow(
     )
     candidates = _filter_by_command(candidates, command=command, today=local_today)
     result.candidates = candidates
+    result.candidate_symbols = len({event.symbol for event in candidates})
 
     if command == "scan-earnings-calendar":
         if candidates:
@@ -162,36 +178,42 @@ def run_earnings_workflow(
                 message=message,
                 send_discord=send_discord,
             )
+        _finalize_symbol_counters(result)
         _finalize(config.output_dir, state_path, state, result)
         return result
 
-    media_by_key: dict[tuple[str, str], list[Any]] = {}
     for event in candidates:
         media, media_warnings = fetch_media_updates(news_provider, event)
         result.warnings.extend(media_warnings)
-        media_by_key[(event.symbol, event.report_date)] = media
+        selected_media = select_relevant_media_updates(media, max_items=config.news_digest_max_items)
+        if media and not selected_media:
+            result.warnings.append(f"{event.symbol}: no earnings-relevant Alpha Vantage news selected")
         write_partitioned_json(
             config.output_dir,
             "media",
             f"{event.report_date}_{event.symbol}",
-            [x.to_dict() for x in media],
+            {
+                "raw_count": len(media),
+                "selected_count": len(selected_media),
+                "selected": [x.to_dict() for x in selected_media],
+            },
         )
-        for update in media:
-            payload = media_publish_payload(update)
-            title_hash = compute_content_hash(payload)[:12]
+        if selected_media:
+            payload = media_digest_publish_payload(event.symbol, event.report_date, selected_media)
             _publish_incremental(
                 state=state,
                 result=result,
                 config=config,
-                key=build_publish_key(event.symbol, event.report_date, "earnings_media", title_hash),
+                key=build_publish_key(event.symbol, event.report_date, "earnings_media_digest", "selected_news"),
                 symbol=event.symbol,
                 report_date=event.report_date,
-                content_type="earnings_media",
-                content_scope=title_hash,
+                content_type="earnings_media_digest",
+                content_scope="selected_news",
                 payload=payload,
-                summary=update.summary,
-                message=format_media_update(update),
+                summary=f"{event.symbol}: {len(selected_media)} earnings media items",
+                message=format_media_digest(event.symbol, event.report_date, selected_media),
                 send_discord=send_discord,
+                news_item_count=len(selected_media),
             )
 
         if command in {"run-morning-earnings-report", "run-pre-close-amc-report", "run-daily-earnings-workflow"}:
@@ -202,7 +224,7 @@ def run_earnings_workflow(
                 result=result,
                 config=config,
                 send_discord=send_discord,
-                media=media_by_key.get((event.symbol, event.report_date), []),
+                media=[],
             )
 
         if command in {"run-pre-close-amc-report", "run-daily-earnings-workflow"} and event.timing_bucket == "amc":
@@ -237,6 +259,7 @@ def run_earnings_workflow(
                 send_discord=send_discord,
             )
 
+    _finalize_symbol_counters(result)
     _finalize(config.output_dir, state_path, state, result)
     return result
 
@@ -353,6 +376,7 @@ def _publish_incremental(
     summary: str,
     message: str,
     send_discord: bool,
+    news_item_count: int = 0,
 ) -> bool:
     content_hash = compute_content_hash(payload)
     if not should_publish(state, key, content_hash):
@@ -362,6 +386,10 @@ def _publish_incremental(
     if send_discord and config.discord_webhook_url and not config.dry_run:
         DiscordWebhookClient(config.discord_webhook_url).send_message(message)
     result.published_messages.append(message)
+    if symbol != "CALENDAR":
+        result._published_symbol_names.add(symbol)
+        result.published_symbols = len(result._published_symbol_names)
+    result.published_news_items += news_item_count
     mark_published(
         state,
         make_publish_item(
@@ -392,6 +420,26 @@ def _finalize(output_dir: Path, state_path: Path, state: dict[str, Any], result:
         date_key,
         "\n\n---\n\n".join(result.published_messages) or "No incremental earnings updates.",
     )
+
+
+def _finalize_symbol_counters(result: EarningsWorkflowResult) -> None:
+    candidate_symbols = sorted({event.symbol for event in result.candidates})
+    result.candidate_symbols = len(candidate_symbols)
+    result.published_symbols = len(result._published_symbol_names)
+    for symbol in candidate_symbols:
+        if symbol in result._published_symbol_names:
+            continue
+        result.skipped_reasons.setdefault(symbol, _skip_reason_for_symbol(symbol, result))
+    result.skipped_symbols = len(result.skipped_reasons)
+
+
+def _skip_reason_for_symbol(symbol: str, result: EarningsWorkflowResult) -> str:
+    symbol_warnings = [warning for warning in result.warnings if warning.startswith(f"{symbol}:")]
+    if symbol_warnings:
+        return "no meaningful incremental update; " + "; ".join(symbol_warnings[:3])
+    if result.skipped_messages:
+        return "no meaningful incremental update"
+    return "no publishable earnings update"
 
 
 def _start_date_for_command(command: str, today: date) -> date:

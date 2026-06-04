@@ -7,8 +7,8 @@ from typing import Any
 
 import requests
 
-from .media_update_analyzer import MediaUpdate
-from .normalization import normalize_title, safe_str
+from .media_update_analyzer import MediaUpdate, compute_earnings_relevance_score
+from .normalization import normalize_title, safe_float, safe_str
 
 
 @dataclass
@@ -88,22 +88,43 @@ def normalize_alpha_vantage_news(
             continue
         source = safe_str(row.get("source"))
         url = safe_str(row.get("url"))
+        ticker_sentiment = _find_ticker_sentiment(row.get("ticker_sentiment"), symbol)
         key = f"{normalize_title(title)}|{source or ''}|{url or ''}"
         if key in seen:
             continue
         seen.add(key)
-        updates.append(
-            MediaUpdate(
-                symbol=symbol.upper(),
-                report_date=report_date,
-                title=title,
-                source=source,
-                url=url,
-                published_at=_normalize_alpha_time(safe_str(row.get("time_published"))),
-                summary=f"{symbol.upper()}: {title}",
-            )
+        update = MediaUpdate(
+            symbol=symbol.upper(),
+            report_date=report_date,
+            title=title,
+            source=source,
+            url=url,
+            published_at=_normalize_alpha_time(safe_str(row.get("time_published"))),
+            summary=f"{symbol.upper()}: {title}",
+            description=safe_str(row.get("summary")),
+            overall_sentiment_score=safe_float(row.get("overall_sentiment_score")),
+            overall_sentiment_label=safe_str(row.get("overall_sentiment_label")),
+            ticker_sentiment_score=safe_float(ticker_sentiment.get("ticker_sentiment_score")),
+            ticker_sentiment_label=safe_str(ticker_sentiment.get("ticker_sentiment_label")),
+            relevance_score=safe_float(ticker_sentiment.get("relevance_score")),
+            ticker_relevance_score=safe_float(ticker_sentiment.get("relevance_score")),
         )
+        update.earnings_relevance_score = compute_earnings_relevance_score(update)
+        updates.append(update)
     return updates
+
+
+def _find_ticker_sentiment(value: Any, symbol: str) -> dict[str, Any]:
+    target = symbol.upper()
+    if not isinstance(value, list):
+        return {}
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        ticker = safe_str(item.get("ticker"))
+        if ticker and ticker.upper() == target:
+            return item
+    return {}
 
 
 def _format_alpha_time(dt: datetime) -> str:
@@ -118,4 +139,3 @@ def _normalize_alpha_time(value: str | None) -> str | None:
         return dt.isoformat()
     except Exception:
         return value
-

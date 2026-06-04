@@ -48,10 +48,18 @@ def main(argv: list[str] | None = None) -> int:
         send_discord=not args.skip_discord,
     )
     print(
-        f"{args.command}: candidates={len(result.candidates)} "
-        f"published={len(result.published_messages)} skipped={result.skipped_messages} "
+        f"{args.command}: candidate_symbols={result.candidate_symbols} "
+        f"published_symbols={result.published_symbols} "
+        f"published_news_items={result.published_news_items} "
+        f"skipped_symbols={result.skipped_symbols} "
+        f"messages={len(result.published_messages)} "
+        f"skipped_messages={result.skipped_messages} "
         f"warnings={len(result.warnings)}"
     )
+    if result.skipped_symbols > 0:
+        print("Skipped symbols:")
+        for symbol, reason in sorted(result.skipped_reasons.items()):
+            print(f"- {symbol}: {reason}")
     if result.warnings:
         print("Warnings:")
         for warning in result.warnings[:20]:
@@ -64,4 +72,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -60,6 +60,7 @@ class EarningsConfig:
     publish_state_ttl_days: int
     market_reaction_update_threshold_pct: float
     news_limit: int
+    news_digest_max_items: int
     output_dir: Path
     dry_run: bool = False
 
@@ -100,6 +101,7 @@ def load_earnings_config(env_file: str | Path | None = None) -> EarningsConfig:
         publish_state_ttl_days=int(os.getenv("EARNINGS_PUBLISH_STATE_TTL_DAYS", "14")),
         market_reaction_update_threshold_pct=float(os.getenv("EARNINGS_MARKET_REACTION_UPDATE_THRESHOLD_PCT", "1.5")),
         news_limit=int(os.getenv("EARNINGS_NEWS_LIMIT", "20")),
+        news_digest_max_items=int(os.getenv("EARNINGS_NEWS_DIGEST_MAX_ITEMS", "3")),
         output_dir=output_dir,
         dry_run=_as_bool(os.getenv("EARNINGS_DRY_RUN"), False),
     )

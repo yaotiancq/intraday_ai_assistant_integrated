@@ -9,9 +9,16 @@ from app.earnings_system.config import EarningsConfig
 from app.earnings_system.earnings_calendar_scanner import normalize_earnings_calendar_event
 from app.earnings_system.fmp_client import FMPClient
 from app.earnings_system.market_reaction_analyzer import classify_market_reaction
-from app.earnings_system.media_update_analyzer import fetch_media_updates
+from app.earnings_system.media_update_analyzer import (
+    MediaUpdate,
+    aggregate_news_sentiment,
+    compute_earnings_relevance_score,
+    fetch_media_updates,
+    label_aggregate_sentiment,
+    select_relevant_media_updates,
+)
 from app.earnings_system.models import PreEarningsPreview
-from app.earnings_system.notification_formatter import format_pre_earnings_preview
+from app.earnings_system.notification_formatter import format_media_digest, format_pre_earnings_preview
 from app.earnings_system.post_earnings_analyzer import classify_actual_vs_estimate
 from app.earnings_system.pre_earnings_analyzer import has_meaningful_consensus_change
 from app.earnings_system.publish_state import (
@@ -205,6 +212,23 @@ def test_alpha_vantage_news_parsing():
                 "source": "Example",
                 "url": "https://example.com/docu",
                 "time_published": "20260604T120000",
+                "summary": "Analysts preview revenue and EPS estimates.",
+                "overall_sentiment_score": "0.18",
+                "overall_sentiment_label": "Somewhat-Bullish",
+                "ticker_sentiment": [
+                    {
+                        "ticker": "DOCU",
+                        "relevance_score": "0.92",
+                        "ticker_sentiment_score": "0.31",
+                        "ticker_sentiment_label": "Bullish",
+                    },
+                    {
+                        "ticker": "CRM",
+                        "relevance_score": "0.10",
+                        "ticker_sentiment_score": "0.02",
+                        "ticker_sentiment_label": "Neutral",
+                    },
+                ],
             },
             {
                 "title": "DocuSign earnings preview",
@@ -220,6 +244,14 @@ def test_alpha_vantage_news_parsing():
     assert len(updates) == 1
     assert updates[0].symbol == "DOCU"
     assert updates[0].published_at == "2026-06-04T12:00:00"
+    assert updates[0].overall_sentiment_score == 0.18
+    assert updates[0].overall_sentiment_label == "Somewhat-Bullish"
+    assert updates[0].ticker_sentiment_score == 0.31
+    assert updates[0].ticker_sentiment_label == "Bullish"
+    assert updates[0].relevance_score == 0.92
+    assert updates[0].ticker_relevance_score == 0.92
+    assert updates[0].earnings_relevance_score is not None
+    assert 0 < updates[0].earnings_relevance_score < 1.0
 
 
 def test_alpha_vantage_failure_fallback():
@@ -278,6 +310,158 @@ def test_alpha_vantage_provider_builds_news_sentiment_request():
     assert params["sort"] == "LATEST"
     assert params["limit"] == 20
     assert updates[0].title == "AAPL earnings watch"
+
+
+def test_earnings_relevance_is_not_raw_ticker_relevance():
+    strong = MediaUpdate(
+        symbol="DOCU",
+        report_date="2026-06-04",
+        title="DocuSign Q1 earnings preview: revenue and EPS estimates",
+        source="Example",
+        url="https://example.com/strong",
+        published_at="2026-06-04T12:00:00",
+        summary="DOCU earnings preview",
+        description="Analysts discuss consensus estimates, guidance, revenue, and EPS.",
+        relevance_score=1.0,
+        ticker_relevance_score=1.0,
+    )
+    weak = MediaUpdate(
+        symbol="DOCU",
+        report_date="2026-06-04",
+        title="DocuSign insider selling update",
+        source="Example",
+        url="https://example.com/weak",
+        published_at="2026-06-04T12:00:00",
+        summary="DOCU insider selling update",
+        description="Insider selling disclosure unrelated to quarterly results.",
+        relevance_score=1.0,
+        ticker_relevance_score=1.0,
+    )
+
+    assert compute_earnings_relevance_score(strong) > compute_earnings_relevance_score(weak)
+    assert compute_earnings_relevance_score(weak) < 0.5
+
+
+def _media(title: str, description: str | None = None) -> MediaUpdate:
+    return MediaUpdate(
+        symbol="DOCU",
+        report_date="2026-06-04",
+        title=title,
+        source="Example",
+        url=f"https://example.com/{abs(hash(title))}",
+        published_at="2026-06-04T12:00:00",
+        summary=f"DOCU: {title}",
+        description=description,
+    )
+
+
+def _sentiment_media(
+    title: str,
+    *,
+    ticker_score=None,
+    overall_score=None,
+    relevance=None,
+    earnings_relevance=None,
+    ticker_label=None,
+    overall_label=None,
+) -> MediaUpdate:
+    update = _media(title, "Earnings-related article summary.")
+    update.ticker_sentiment_score = ticker_score
+    update.overall_sentiment_score = overall_score
+    update.relevance_score = relevance
+    update.ticker_relevance_score = relevance
+    update.earnings_relevance_score = earnings_relevance
+    update.ticker_sentiment_label = ticker_label
+    update.overall_sentiment_label = overall_label
+    return update
+
+
+def test_weighted_average_sentiment_calculation():
+    summary = aggregate_news_sentiment([
+        _sentiment_media("DocuSign Q1 earnings preview", ticker_score=0.30, relevance=1.00, earnings_relevance=0.80),
+        _sentiment_media("DocuSign revenue guidance report", overall_score=-0.10, relevance=1.00, earnings_relevance=0.20),
+    ])
+
+    assert round(summary["score"], 2) == 0.22
+    assert summary["label"] == "Slightly Bullish"
+    assert summary["sentiment_item_count"] == 2
+    assert summary["mixed"] is True
+
+
+def test_aggregate_sentiment_label_mapping():
+    assert label_aggregate_sentiment(0.25) == "Bullish"
+    assert label_aggregate_sentiment(0.05) == "Slightly Bullish"
+    assert label_aggregate_sentiment(0.0) == "Neutral"
+    assert label_aggregate_sentiment(-0.05) == "Slightly Bearish"
+    assert label_aggregate_sentiment(-0.25) == "Bearish"
+    assert label_aggregate_sentiment(None) == "Unavailable"
+
+
+def test_digest_output_includes_sentiment_summary():
+    digest = format_media_digest(
+        "DOCU",
+        "2026-06-04",
+        [
+            _sentiment_media(
+                "DocuSign Q1 earnings preview",
+                ticker_score=0.30,
+                relevance=1.00,
+                earnings_relevance=0.80,
+                ticker_label="Bullish",
+            ),
+            _sentiment_media(
+                "DocuSign revenue guidance report",
+                ticker_score=-0.10,
+                relevance=1.00,
+                earnings_relevance=0.20,
+                ticker_label="Somewhat-Bearish",
+            ),
+        ],
+    )
+
+    assert "Earnings News Sentiment" in digest
+    assert "Aggregate tone: `Slightly Bullish`" in digest
+    assert "Ticker sentiment: `Bullish` score `0.30` | earnings relevance `0.80` | ticker relevance `1.00`" in digest
+    assert "should not be treated as a trading signal by itself" in digest
+
+
+def test_missing_sentiment_fields_do_not_break_media_fetch():
+    class NoSentimentProvider:
+        def fetch_news(self, **kwargs):
+            return [_media("DocuSign Q1 earnings preview")]
+
+    event = normalize_earnings_calendar_event({"symbol": "DOCU", "date": "2026-06-04"})
+    updates, warnings = fetch_media_updates(NoSentimentProvider(), event)
+
+    assert len(updates) == 1
+    assert any("returned no sentiment fields" in warning for warning in warnings)
+
+
+def test_weakly_related_news_is_filtered_and_deprioritized():
+    selected = select_relevant_media_updates(
+        [
+            _media("DocuSign insider selling picks up"),
+            _media("DocuSign Q1 earnings preview: revenue and EPS estimates"),
+            _media("DocuSign launches unrelated AI product"),
+        ],
+        max_items=3,
+    )
+
+    assert [item.title for item in selected] == ["DocuSign Q1 earnings preview: revenue and EPS estimates"]
+
+
+def test_max_news_items_per_symbol_is_enforced():
+    selected = select_relevant_media_updates(
+        [
+            _media("DocuSign Q1 earnings preview"),
+            _media("DocuSign revenue guidance analysis"),
+            _media("DocuSign analyst EPS estimate update"),
+            _media("DocuSign consensus results report"),
+        ],
+        max_items=2,
+    )
+
+    assert len(selected) == 2
 
 
 def test_notification_formatting_includes_conditional_context():
@@ -342,10 +526,111 @@ class FakeNewsProvider:
                 "source": "Example",
                 "url": f"https://example.com/{symbol.lower()}",
                 "time_published": "20260604T120000",
+                "overall_sentiment_score": "0.12",
+                "overall_sentiment_label": "Somewhat-Bullish",
+                "ticker_sentiment": [{
+                    "ticker": symbol,
+                    "relevance_score": "0.90",
+                    "ticker_sentiment_score": "0.20",
+                    "ticker_sentiment_label": "Somewhat-Bullish",
+                }],
             }],
             symbol=symbol,
             report_date=kwargs["report_date"],
         )
+
+
+class MultiNewsProvider:
+    def __init__(self, titles):
+        self.titles = titles
+
+    def fetch_news(self, **kwargs):
+        return [
+            MediaUpdate(
+                symbol=kwargs["symbol"],
+                report_date=kwargs["report_date"],
+                title=title,
+                source="Example",
+                url=f"https://example.com/{index}",
+                published_at="2026-06-04T12:00:00",
+                summary=f"{kwargs['symbol']}: {title}",
+                description="Earnings-related article summary.",
+                overall_sentiment_score=0.10,
+                overall_sentiment_label="Somewhat-Bullish",
+                ticker_sentiment_score=0.20,
+                ticker_sentiment_label="Somewhat-Bullish",
+                relevance_score=0.80,
+            )
+            for index, title in enumerate(self.titles, start=1)
+        ]
+
+
+def _test_earnings_config(tmp_path, *, news_digest_max_items=3) -> EarningsConfig:
+    return EarningsConfig(
+        fmp_api_key="test",
+        alphavantage_api_key="av-test",
+        discord_webhook_url="",
+        earnings_lookahead_days=1,
+        universe_mode="watchlist_only",
+        watchlist_symbols=["AAPL"],
+        max_deep_analysis_candidates=10,
+        request_timeout_seconds=1,
+        request_retry_count=0,
+        request_throttle_seconds=0,
+        timezone_user="America/Los_Angeles",
+        timezone_market="America/New_York",
+        bmo_notification_time_pt="04:00",
+        amc_notification_time_pt="12:45",
+        morning_report_time_pt="05:30",
+        pre_close_amc_report_time_pt="12:45",
+        post_market_report_time_pt="15:30",
+        publish_state_ttl_days=14,
+        market_reaction_update_threshold_pct=1.5,
+        news_limit=20,
+        news_digest_max_items=news_digest_max_items,
+        output_dir=tmp_path / "earnings",
+        dry_run=True,
+    )
+
+
+def test_workflow_aggregates_multiple_news_items_into_one_digest(tmp_path):
+    result = run_earnings_workflow(
+        config=_test_earnings_config(tmp_path, news_digest_max_items=3),
+        command="run-daily-earnings-workflow",
+        as_of=date(2026, 6, 4),
+        client=FakeFMPClient(),
+        news_provider=MultiNewsProvider([
+            "AAPL Q2 earnings preview",
+            "AAPL revenue guidance report",
+            "AAPL analyst EPS estimate update",
+        ]),
+        send_discord=False,
+    )
+
+    digest_messages = [m for m in result.published_messages if "**Earnings media digest: AAPL**" in m]
+    assert len(digest_messages) == 1
+    assert "**Earnings media update:" not in "\n".join(result.published_messages)
+    assert result.published_news_items == 3
+
+
+def test_workflow_enforces_max_news_items_per_symbol(tmp_path):
+    result = run_earnings_workflow(
+        config=_test_earnings_config(tmp_path, news_digest_max_items=2),
+        command="run-daily-earnings-workflow",
+        as_of=date(2026, 6, 4),
+        client=FakeFMPClient(),
+        news_provider=MultiNewsProvider([
+            "AAPL Q2 earnings preview",
+            "AAPL revenue guidance report",
+            "AAPL analyst EPS estimate update",
+            "AAPL consensus results watch",
+        ]),
+        send_discord=False,
+    )
+
+    digest = next(m for m in result.published_messages if "**Earnings media digest: AAPL**" in m)
+    assert "Selected news items: `2`" in digest
+    assert result.published_news_items == 2
 
 
 def test_workflow_does_not_crash_when_one_symbol_fails(tmp_path):
@@ -370,6 +655,7 @@ def test_workflow_does_not_crash_when_one_symbol_fails(tmp_path):
         publish_state_ttl_days=14,
         market_reaction_update_threshold_pct=1.5,
         news_limit=20,
+        news_digest_max_items=3,
         output_dir=tmp_path / "earnings",
         dry_run=True,
     )
@@ -415,6 +701,7 @@ def test_earnings_workflow_continues_when_news_unavailable(tmp_path):
         publish_state_ttl_days=14,
         market_reaction_update_threshold_pct=1.5,
         news_limit=20,
+        news_digest_max_items=3,
         output_dir=tmp_path / "earnings",
         dry_run=True,
     )
