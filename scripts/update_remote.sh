@@ -30,6 +30,9 @@ gzip -f "$ARCHIVE_BASENAME"
 echo "[local] Uploading image archive to $REMOTE_USER@$REMOTE_HOST..."
 scp -i "$SSH_KEY" "$ARCHIVE_GZ" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_HOME/"
 
+echo "[local] Uploading Docker Compose file..."
+scp -i "$SSH_KEY" docker-compose.yml "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PROJECT_DIR/docker-compose.yml"
+
 echo "[remote] Loading image and restarting services..."
 ssh -i "$SSH_KEY" "$REMOTE_USER@$REMOTE_HOST" \
   "REMOTE_PROJECT_DIR='$REMOTE_PROJECT_DIR' ARCHIVE_GZ='$ARCHIVE_GZ' ARCHIVE_BASENAME='$ARCHIVE_BASENAME' bash -s" <<'EOF'

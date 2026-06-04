@@ -52,3 +52,16 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     restart: unless-stopped
+
+  exdividend-scheduler:
+    image: intraday-ai-assistant-integrated:latest
+    container_name: exdividend-scheduler
+    network_mode: host
+    env_file:
+      - .env
+    command:
+      - python
+      - scripts/run_daily_exdividend_scheduler.py
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

@@ -179,7 +179,8 @@ Oracle Ubuntu host
   └─ docker compose
       ├─ monitor              # realtime signal monitor + local admin API
       ├─ discord-bot          # Discord /watch commands from phone
-      └─ premarket-scheduler  # runs AI premarket once per trading day
+      ├─ premarket-scheduler  # runs AI premarket once per trading day
+      └─ exdividend-scheduler # runs ex-dividend scan once per trading day
 ```
 
 ```bash
@@ -193,6 +194,7 @@ docker compose up -d
 monitor              # 实时 1m/3m/5m signal monitor + local admin API
 discord-bot          # Discord /watch add/remove/set/list/status/period
 premarket-scheduler  # 每个美股交易日运行一次盘前助手
+exdividend-scheduler # 每个美股交易日盘前运行一次除息股票评分
 ```
 
 查看日志：
@@ -201,12 +203,36 @@ premarket-scheduler  # 每个美股交易日运行一次盘前助手
 docker compose logs -f monitor
 docker compose logs -f discord-bot
 docker compose logs -f premarket-scheduler
+docker compose logs -f exdividend-scheduler
 ```
 
 重启单个服务：
 
 ```bash
 docker compose up -d --force-recreate monitor
+```
+
+除息扫描默认每天美股交易日 `05:30`（`TIMEZONE` 时区）运行一次，并把评分结果发送到
+`DISCORD_EXDIVIDEND_WEBHOOK_URL`：
+
+```bash
+docker compose up -d exdividend-scheduler
+```
+
+可在 `.env` 调整：
+
+```text
+EXDIVIDEND_RUN_TIME=05:30
+EXDIVIDEND_TOP=20
+EXDIVIDEND_MAX_CANDIDATES=0
+EXDIVIDEND_DELAY_SECONDS=0.2
+EXDIVIDEND_DRY_RUN=false
+```
+
+手动测试：
+
+```bash
+python scripts/run_get_exdividend_date.py --dry-run
 ```
 
 ## 9. Monitor Watchlist
