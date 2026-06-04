@@ -573,8 +573,10 @@ def test_digest_output_includes_sentiment_summary():
     )
 
     assert "Earnings News Sentiment" in digest
-    assert "Aggregate tone: `Slightly Bullish`" in digest
-    assert "Ticker sentiment: `Bullish` score `0.30` | earnings relevance `0.80` | ticker relevance `1.00`" in digest
+    assert "Tone `Slightly Bullish` | score `0.22`" in digest
+    assert "Sentiment `Bullish` | score `0.30`" in digest
+    assert "Relevance earnings `0.80` | ticker `1.00`" in digest
+    assert "[Open article](" in digest
     assert "should not be treated as a trading signal by itself" in digest
 
 
@@ -639,8 +641,10 @@ def test_notification_formatting_includes_conditional_context():
     message = format_pre_earnings_preview(preview)
 
     assert "Pre-earnings consensus: AAPL" in message
-    assert "bullish continuation watch only if" in message
-    assert "sell-the-news risk if" in message
+    assert "**Consensus**" in message
+    assert "**Trading Context**" in message
+    assert "Continuation only if price holds VWAP" in message
+    assert "sell-the-news risk if" in message.lower()
 
 
 class FakeFMPClient:
@@ -782,7 +786,7 @@ def test_workflow_enforces_max_news_items_per_symbol(tmp_path):
     )
 
     digest = next(m for m in result.published_messages if "**Earnings media digest: AAPL**" in m)
-    assert "Selected news items: `2`" in digest
+    assert "`2` selected articles" in digest
     assert result.published_news_items == 2
 
 

@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from .market_reaction_analyzer import MarketReactionAnalysis
 from .media_update_analyzer import MediaUpdate, aggregate_news_sentiment, ensure_earnings_relevance_scores
 from .models import EarningsCalendarEvent, PostEarningsAnalysis, PreEarningsPreview
 
 
 def format_calendar_summary(events: list[EarningsCalendarEvent], *, title: str = "Earnings calendar") -> str:
-    lines = [title]
+    lines = [f"**{title}**"]
     if not events:
         lines.append("No earnings events matched the configured universe.")
         return "\n".join(lines)
     for event in events:
         lines.append(
-            f"- `{event.symbol}` {event.report_date} timing `{event.timing_bucket}` "
-            f"notification `{event.notification_time_pt or 'n/a'}`"
+            f"- `{event.symbol}` `{event.report_date}` | `{_clean_label(event.timing_bucket)}` | "
+            f"notify `{_fmt_datetime(event.notification_time_pt)}`"
         )
     return "\n".join(lines)
 
@@ -21,32 +23,31 @@ def format_calendar_summary(events: list[EarningsCalendarEvent], *, title: str =
 def format_pre_earnings_preview(preview: PreEarningsPreview, media: list[MediaUpdate] | None = None) -> str:
     lines = [
         f"**Pre-earnings consensus: {preview.symbol}**",
-        f"Report date: `{preview.report_date}`",
-        f"Timing: `{preview.timing_bucket}` | notification PT: `{preview.notification_time_pt or 'n/a'}` | confidence: `{preview.timing_confidence}`",
-        f"EPS estimate: `{_fmt_num(preview.eps_estimate)}`",
-        f"Revenue estimate: `{_fmt_money(preview.revenue_estimate)}`",
-        f"Analyst count: `{preview.analyst_count if preview.analyst_count is not None else 'n/a'}`",
-        f"Historical beat rate: `{_fmt_pct_ratio(preview.historical_beat_rate)}`",
-        f"Prior quarter EPS surprise: `{_fmt_pct(preview.prior_quarter_eps_surprise_pct)}`",
-        (
-            "Price target: "
-            f"low `{_fmt_num(preview.price_target_low)}` / "
-            f"mean `{_fmt_num(preview.price_target_mean)}` / "
-            f"high `{_fmt_num(preview.price_target_high)}`"
-        ),
-        f"Rating consensus: `{preview.rating_consensus or 'unavailable'}`",
-        f"Expectation risk: `{preview.expectation_risk_level}`",
-        "Trading context: bullish continuation watch only if price holds VWAP and the opening range; "
-        "sell-the-news risk if the gap fades below VWAP.",
+        f"`{preview.report_date}` | `{_clean_label(preview.timing_bucket)}` | notify `{_fmt_datetime(preview.notification_time_pt)}`",
+        f"Confidence: `{_clean_label(preview.timing_confidence)}`",
+        "",
+        "**Consensus**",
+        f"EPS `{_fmt_num(preview.eps_estimate)}`",
+        f"Revenue `{_fmt_money(preview.revenue_estimate)}`",
+        f"Analysts `{preview.analyst_count if preview.analyst_count is not None else 'n/a'}`",
+        "",
+        "**Setup**",
+        f"Beat rate `{_fmt_pct_ratio(preview.historical_beat_rate)}`",
+        f"Prior EPS surprise `{_fmt_pct(preview.prior_quarter_eps_surprise_pct)}`",
+        f"Price target `{_fmt_num(preview.price_target_low)}` / `{_fmt_num(preview.price_target_mean)}` / `{_fmt_num(preview.price_target_high)}`",
+        f"Rating `{_clean_label(preview.rating_consensus or 'unavailable')}`",
+        f"Risk `{_clean_label(preview.expectation_risk_level)}`",
+        "",
+        "**Trading Context**",
+        "Continuation only if price holds VWAP and the opening range.",
+        "Sell-the-news risk if the gap fades below VWAP.",
     ]
     if media:
-        lines.append("Media/news:")
+        lines.extend(["", "**Media**"])
         for item in media[:3]:
-            source = f" ({item.source})" if item.source else ""
-            url = f" - {item.url}" if item.url else ""
-            lines.append(f"- {item.title}{source}{url}")
+            lines.append(f"- {_article_link(item)}")
     if preview.warnings:
-        lines.append("Warnings:")
+        lines.extend(["", "**Warnings**"])
         lines.extend(f"- {w}" for w in preview.warnings[:10])
     return "\n".join(lines)
 
@@ -54,10 +55,10 @@ def format_pre_earnings_preview(preview: PreEarningsPreview, media: list[MediaUp
 def format_earnings_reminder(event: EarningsCalendarEvent) -> str:
     return "\n".join([
         f"**Scheduled earnings reminder: {event.symbol}**",
-        f"Report date: `{event.report_date}`",
-        f"Timing bucket: `{event.timing_bucket}`",
-        f"Notification PT: `{event.notification_time_pt or 'n/a'}`",
-        f"Timing confidence: `{event.timing_confidence}`",
+        f"`{event.report_date}` | `{_clean_label(event.timing_bucket)}`",
+        f"Notify PT: `{_fmt_datetime(event.notification_time_pt)}`",
+        f"Confidence: `{_clean_label(event.timing_confidence)}`",
+        "",
         "Reminder only. Do not treat an inferred notification time as the company's exact release time.",
     ])
 
@@ -67,32 +68,32 @@ def format_media_digest(symbol: str, report_date: str, updates: list[MediaUpdate
     sentiment = aggregate_news_sentiment(updates)
     lines = [
         f"**Earnings media digest: {symbol}**",
-        f"Report date: `{report_date}`",
-        f"Selected news items: `{len(updates)}`",
+        f"`{report_date}` | `{len(updates)}` selected articles",
         "",
-        "Earnings News Sentiment",
-        f"Aggregate tone: `{sentiment['label']}` (`{_fmt_num(sentiment['score'])}`)",
-        f"Articles with sentiment: `{sentiment['sentiment_item_count']}` / `{sentiment['article_count']}`",
-        f"Interpretation: {sentiment['interpretation']}",
+        "**Earnings News Sentiment**",
+        f"Tone `{sentiment['label']}` | score `{_fmt_num(sentiment['score'])}`",
+        f"Coverage `{sentiment['sentiment_item_count']}/{sentiment['article_count']}` articles with sentiment",
+        _clip(sentiment["interpretation"], 180),
         "",
-        "Top earnings-related articles:",
+        "**Top Articles**",
     ]
     for index, update in enumerate(updates, start=1):
-        source = f" ({update.source})" if update.source else ""
-        published = f" `{update.published_at}`" if update.published_at else ""
-        lines.append(f"{index}. {update.title}{source}{published}")
+        lines.append(f"**{index}. {_clip(update.title, 100)}**")
+        meta = " | ".join(x for x in [update.source or "", _fmt_datetime(update.published_at)] if x)
+        if meta:
+            lines.append(meta)
+        lines.append(f"Sentiment `{update.ticker_sentiment_label or 'n/a'}` | score `{_fmt_num(update.ticker_sentiment_score)}`")
         lines.append(
-            "   "
-            f"Ticker sentiment: `{update.ticker_sentiment_label or 'n/a'}` "
-            f"score `{_fmt_num(update.ticker_sentiment_score)}` | "
-            f"earnings relevance `{_fmt_num(update.earnings_relevance_score)}` | "
-            f"ticker relevance `{_fmt_num(update.ticker_relevance_score or update.relevance_score)}`"
+            f"Relevance earnings `{_fmt_num(update.earnings_relevance_score)}` | "
+            f"ticker `{_fmt_num(update.ticker_relevance_score or update.relevance_score)}`"
         )
-        lines.append(f"   Reason: {update.earnings_relevance_reason or 'earnings-related'}")
+        lines.append(f"Reason `{_clean_label(update.earnings_relevance_reason or 'earnings-related')}`")
         if update.description:
-            lines.append(f"   {update.description[:240]}")
+            lines.append(_clip(update.description, 170))
         if update.url:
-            lines.append(f"   {update.url}")
+            lines.append(_markdown_link("Open article", update.url))
+        if index != len(updates):
+            lines.append("")
     return "\n".join(lines)
 
 
@@ -102,23 +103,27 @@ def format_post_earnings_analysis(
 ) -> str:
     lines = [
         f"**Post-earnings analysis: {analysis.symbol}**",
-        f"Report date: `{analysis.report_date}`",
-        f"EPS actual vs estimate: `{_fmt_num(analysis.actual_eps)}` vs `{_fmt_num(analysis.estimated_eps)}`",
-        f"EPS surprise: `{_fmt_pct(analysis.eps_surprise_pct)}`",
-        f"Revenue actual vs estimate: `{_fmt_money(analysis.actual_revenue)}` vs `{_fmt_money(analysis.estimated_revenue)}`",
-        f"Revenue surprise: `{_fmt_pct(analysis.revenue_surprise_pct)}`",
-        f"Result classification: `{analysis.result_classification}`",
+        f"`{analysis.report_date}`",
+        "",
+        "**Actuals**",
+        f"EPS `{_fmt_num(analysis.actual_eps)}` vs est `{_fmt_num(analysis.estimated_eps)}`",
+        f"EPS surprise `{_fmt_pct(analysis.eps_surprise_pct)}`",
+        f"Revenue `{_fmt_money(analysis.actual_revenue)}` vs est `{_fmt_money(analysis.estimated_revenue)}`",
+        f"Revenue surprise `{_fmt_pct(analysis.revenue_surprise_pct)}`",
+        f"Result `{_clean_label(analysis.result_classification)}`",
     ]
     if reaction:
         lines.extend([
-            f"Market reaction: `{reaction.reaction_classification}` / `{_fmt_pct(reaction.reaction_pct)}`",
-            f"Next-day conditional bias: {reaction.next_day_conditional_bias}",
-            f"Medium-term conditional bias: {reaction.medium_term_conditional_bias}",
-            "Confirmation conditions: " + "; ".join(reaction.confirmation_conditions),
-            "Failure conditions: " + "; ".join(reaction.failure_conditions),
+            "",
+            "**Market Reaction**",
+            f"`{_clean_label(reaction.reaction_classification)}` | `{_fmt_pct(reaction.reaction_pct)}`",
+            f"Next day: {_clip(reaction.next_day_conditional_bias, 150)}",
+            f"Medium term: {_clip(reaction.medium_term_conditional_bias, 150)}",
+            f"Confirm: {_join_short(reaction.confirmation_conditions)}",
+            f"Fail: {_join_short(reaction.failure_conditions)}",
         ])
     if analysis.warnings or (reaction and reaction.warnings):
-        lines.append("Warnings:")
+        lines.extend(["", "**Warnings**"])
         for warning in [*analysis.warnings, *(reaction.warnings if reaction else [])][:10]:
             lines.append(f"- {warning}")
     return "\n".join(lines)
@@ -127,14 +132,17 @@ def format_post_earnings_analysis(
 def format_market_reaction(analysis: MarketReactionAnalysis) -> str:
     return "\n".join([
         f"**Earnings market reaction: {analysis.symbol}**",
-        f"Report date: `{analysis.report_date}`",
-        f"Reference price: `{_fmt_num(analysis.reference_price)}`",
-        f"Reaction price: `{_fmt_num(analysis.reaction_price)}`",
-        f"Reaction: `{_fmt_pct(analysis.reaction_pct)}` / `{analysis.reaction_classification}`",
-        f"Next-day conditional bias: {analysis.next_day_conditional_bias}",
-        f"Medium-term conditional bias: {analysis.medium_term_conditional_bias}",
-        "Confirmation conditions: " + "; ".join(analysis.confirmation_conditions),
-        "Failure conditions: " + "; ".join(analysis.failure_conditions),
+        f"`{analysis.report_date}` | `{_clean_label(analysis.reaction_session)}`",
+        f"Reference `{_fmt_num(analysis.reference_price)}` -> reaction `{_fmt_num(analysis.reaction_price)}`",
+        f"Move `{_fmt_pct(analysis.reaction_pct)}` | `{_clean_label(analysis.reaction_classification)}`",
+        "",
+        "**Bias**",
+        f"Next day: {_clip(analysis.next_day_conditional_bias, 150)}",
+        f"Medium term: {_clip(analysis.medium_term_conditional_bias, 150)}",
+        "",
+        "**Levels To Watch**",
+        f"Confirm: {_join_short(analysis.confirmation_conditions)}",
+        f"Fail: {_join_short(analysis.failure_conditions)}",
     ])
 
 
@@ -158,3 +166,55 @@ def _fmt_pct(value: float | None) -> str:
 
 def _fmt_pct_ratio(value: float | None) -> str:
     return "n/a" if value is None else f"{value * 100:.0f}%"
+
+
+def _fmt_datetime(value: str | None) -> str:
+    if not value:
+        return "n/a"
+    raw = value.strip()
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return dt.strftime("%b %d %H:%M")
+    except ValueError:
+        pass
+    if len(raw) == 15 and raw[8] == "T":
+        try:
+            dt = datetime.strptime(raw, "%Y%m%dT%H%M%S")
+            return dt.strftime("%b %d %H:%M")
+        except ValueError:
+            pass
+    return raw[:16]
+
+
+def _clip(value: str, limit: int) -> str:
+    clean = " ".join(str(value or "").split())
+    if len(clean) <= limit:
+        return clean
+    return clean[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _clean_label(value: str | None) -> str:
+    if not value:
+        return "n/a"
+    return str(value).replace("_", " ").replace("-", " ")
+
+
+def _join_short(values: list[str], limit: int = 170) -> str:
+    if not values:
+        return "n/a"
+    return _clip("; ".join(values), limit)
+
+
+def _article_link(item: MediaUpdate) -> str:
+    title = _clip(item.title, 90)
+    if item.url:
+        title = _markdown_link(title, item.url)
+    if item.source:
+        return f"{title} - {item.source}"
+    return title
+
+
+def _markdown_link(label: str, url: str) -> str:
+    safe_url = url.replace("(", "%28").replace(")", "%29")
+    safe_label = label.replace("[", "(").replace("]", ")")
+    return f"[{safe_label}]({safe_url})"
