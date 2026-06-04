@@ -1,0 +1,433 @@
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+
+from app.earnings_system.alpha_vantage_news import AlphaVantageNewsProvider, normalize_alpha_vantage_news
+from app.earnings_system.candidate_filter import filter_candidates
+from app.earnings_system.config import EarningsConfig
+from app.earnings_system.earnings_calendar_scanner import normalize_earnings_calendar_event
+from app.earnings_system.fmp_client import FMPClient
+from app.earnings_system.market_reaction_analyzer import classify_market_reaction
+from app.earnings_system.media_update_analyzer import fetch_media_updates
+from app.earnings_system.models import PreEarningsPreview
+from app.earnings_system.notification_formatter import format_pre_earnings_preview
+from app.earnings_system.post_earnings_analyzer import classify_actual_vs_estimate
+from app.earnings_system.pre_earnings_analyzer import has_meaningful_consensus_change
+from app.earnings_system.publish_state import (
+    build_publish_key,
+    cleanup_expired_items,
+    compute_content_hash,
+    load_publish_state,
+    make_publish_item,
+    mark_published,
+    should_publish,
+)
+from app.earnings_system.workflow import run_earnings_workflow
+
+
+def test_fmp_response_normalization_accepts_alternative_fields():
+    event = normalize_earnings_calendar_event({
+        "ticker": "US.NVDA",
+        "reportDate": "2026-07-30",
+        "fiscalDateEnding": "2026-06-30",
+        "estimatedEps": "1.25",
+        "actualEps": "1.30",
+        "estimatedRevenue": "30000000000",
+        "actualRevenue": "32000000000",
+        "timing": "BMO",
+    })
+
+    assert event.symbol == "NVDA"
+    assert event.report_date == "2026-07-30"
+    assert event.fiscal_date_ending == "2026-06-30"
+    assert event.eps_estimate == 1.25
+    assert event.eps_actual == 1.30
+    assert event.revenue_estimate == 30_000_000_000
+    assert event.revenue_actual == 32_000_000_000
+
+
+def test_missing_fields_are_warned_and_continue():
+    event = normalize_earnings_calendar_event({"date": "2026-07-30"})
+
+    assert event.symbol == "UNKNOWN"
+    assert "missing symbol" in event.warnings
+
+
+def test_bmo_timing_inference_does_not_invent_exact_time():
+    event = normalize_earnings_calendar_event({"symbol": "AAPL", "date": "2026-07-30", "time": "bmo"})
+
+    assert event.timing_bucket == "bmo"
+    assert event.exact_release_time_et is None
+    assert event.notification_time_pt.startswith("2026-07-30T04:00:00")
+    assert event.timing_confidence == "inferred_bucket"
+
+
+def test_amc_timing_inference_does_not_invent_exact_time():
+    event = normalize_earnings_calendar_event({"symbol": "MSFT", "date": "2026-07-30", "time": "AMC"})
+
+    assert event.timing_bucket == "amc"
+    assert event.exact_release_time_et is None
+    assert event.notification_time_pt.startswith("2026-07-30T12:45:00")
+    assert event.timing_confidence == "inferred_bucket"
+
+
+def test_exact_datetime_handling():
+    event = normalize_earnings_calendar_event({
+        "symbol": "META",
+        "date": "2026-07-30",
+        "releaseTime": "2026-07-30 16:05:00",
+    })
+
+    assert event.exact_release_time_et is not None
+    assert event.timing_confidence == "exact"
+    assert event.timing_bucket == "amc"
+
+
+def test_candidate_filter_watchlist_and_limit():
+    events = [
+        normalize_earnings_calendar_event({"symbol": "AAPL", "date": "2026-07-30"}),
+        normalize_earnings_calendar_event({"symbol": "MSFT", "date": "2026-07-30"}),
+        normalize_earnings_calendar_event({"symbol": "TSLA", "date": "2026-07-30"}),
+    ]
+
+    selected = filter_candidates(
+        events,
+        universe_mode="watchlist_only",
+        watchlist_symbols=["US.MSFT", "TSLA"],
+        max_candidates=1,
+    )
+
+    assert [x.symbol for x in selected] == ["MSFT"]
+
+
+def test_pre_earnings_content_hash_stability_ignores_order_and_raw():
+    a = {"symbol": "AAPL", "raw": {"x": 1}, "eps_estimate": 1.23, "generated_at": "one"}
+    b = {"generated_at": "two", "eps_estimate": 1.23, "symbol": "AAPL", "raw": {"x": 2}}
+
+    assert compute_content_hash(a) == compute_content_hash(b)
+
+
+def test_should_publish_true_for_new_content():
+    state = load_publish_state(Path("/tmp/does-not-exist-earnings-state.json"))
+
+    assert should_publish(state, "AAPL|2026-07-30|pre|amc", "hash1") is True
+
+
+def test_should_publish_false_for_unchanged_content():
+    state = {"version": 1, "items": {}}
+    item = make_publish_item(
+        key="AAPL|2026-07-30|pre|amc",
+        symbol="AAPL",
+        report_date="2026-07-30",
+        content_type="pre",
+        content_scope="amc",
+        content_hash="hash1",
+        summary="summary",
+        ttl_days=14,
+    )
+    mark_published(state, item)
+
+    assert should_publish(state, item.key, "hash1") is False
+
+
+def test_should_publish_true_when_meaningful_fields_change():
+    previous = {"eps_estimate": 1.00, "revenue_estimate": 100.0, "analyst_count": 10, "rating_consensus": "buy"}
+    current = {"eps_estimate": 1.02, "revenue_estimate": 100.0, "analyst_count": 10, "rating_consensus": "buy"}
+
+    assert has_meaningful_consensus_change(previous, current) is True
+
+
+def test_expired_state_cleanup():
+    now = datetime(2026, 6, 4, tzinfo=timezone.utc)
+    state = {
+        "version": 1,
+        "items": {
+            "old": {"expires_at": (now - timedelta(days=1)).isoformat()},
+            "new": {"expires_at": (now + timedelta(days=1)).isoformat()},
+        },
+    }
+
+    cleanup_expired_items(state, now=now)
+
+    assert "old" not in state["items"]
+    assert "new" in state["items"]
+
+
+def test_actual_vs_estimate_classification():
+    assert classify_actual_vs_estimate(12.0, 8.0) == "strong_beat"
+    assert classify_actual_vs_estimate(2.0, -1.0) == "mixed"
+    assert classify_actual_vs_estimate(-10.0, -9.0) == "strong_miss"
+    assert classify_actual_vs_estimate(None, None) == "unavailable"
+
+
+def test_market_reaction_classification():
+    assert classify_market_reaction(6.0) == "strong_positive"
+    assert classify_market_reaction(2.0) == "positive"
+    assert classify_market_reaction(0.5) == "neutral"
+    assert classify_market_reaction(-2.0) == "negative"
+    assert classify_market_reaction(None) == "unavailable"
+
+
+class FakeResponse:
+    def __init__(self, status_code, text="[]", payload=None):
+        self.status_code = status_code
+        self.text = text
+        self._payload = payload if payload is not None else []
+
+    def json(self):
+        return self._payload
+
+
+class CountingSession:
+    def __init__(self, response):
+        self.response = response
+        self.calls = 0
+
+    def get(self, *args, **kwargs):
+        self.calls += 1
+        return self.response
+
+
+def test_fmp_client_does_not_retry_non_retryable_4xx():
+    session = CountingSession(FakeResponse(404, "[]"))
+    client = FMPClient(api_key="test", retry_count=3, throttle_seconds=0, session=session)
+
+    assert client.safe_get("profile", {"symbol": "AAPL"}, log_errors=False) is None
+    assert session.calls == 1
+
+
+def test_alpha_vantage_news_parsing():
+    updates = normalize_alpha_vantage_news(
+        [
+            {
+                "title": "DocuSign earnings preview",
+                "source": "Example",
+                "url": "https://example.com/docu",
+                "time_published": "20260604T120000",
+            },
+            {
+                "title": "DocuSign earnings preview",
+                "source": "Example",
+                "url": "https://example.com/docu",
+                "time_published": "20260604T120000",
+            },
+        ],
+        symbol="DOCU",
+        report_date="2026-06-04",
+    )
+
+    assert len(updates) == 1
+    assert updates[0].symbol == "DOCU"
+    assert updates[0].published_at == "2026-06-04T12:00:00"
+
+
+def test_alpha_vantage_failure_fallback():
+    class FailingProvider:
+        def fetch_news(self, **kwargs):
+            raise RuntimeError("rate limit")
+
+    event = normalize_earnings_calendar_event({"symbol": "AAPL", "date": "2026-06-04"})
+    updates, warnings = fetch_media_updates(FailingProvider(), event)
+
+    assert updates == []
+    assert any("Alpha Vantage news unavailable" in warning for warning in warnings)
+
+
+def test_alpha_vantage_provider_builds_news_sentiment_request():
+    calls = []
+
+    class Session:
+        def get(self, url, params=None, timeout=None):
+            calls.append((url, params, timeout))
+            return FakeResponse(
+                200,
+                payload={
+                    "feed": [
+                        {
+                            "title": "AAPL earnings watch",
+                            "source": "Example",
+                            "url": "https://example.com/aapl",
+                            "time_published": "20260604T120000",
+                        }
+                    ]
+                },
+            )
+
+    provider = AlphaVantageNewsProvider(
+        api_key="av-test",
+        retry_count=0,
+        throttle_seconds=0,
+        limit=20,
+        session=Session(),
+    )
+    updates = provider.fetch_news(
+        symbol="AAPL",
+        report_date="2026-06-04",
+        time_from=datetime(2026, 6, 1, 0, 0),
+        time_to=datetime(2026, 6, 7, 23, 59),
+        topics="earnings",
+    )
+
+    params = calls[0][1]
+    assert params["function"] == "NEWS_SENTIMENT"
+    assert params["tickers"] == "AAPL"
+    assert params["topics"] == "earnings"
+    assert params["time_from"] == "20260601T0000"
+    assert params["time_to"] == "20260607T2359"
+    assert params["sort"] == "LATEST"
+    assert params["limit"] == 20
+    assert updates[0].title == "AAPL earnings watch"
+
+
+def test_notification_formatting_includes_conditional_context():
+    preview = PreEarningsPreview(
+        symbol="AAPL",
+        report_date="2026-07-30",
+        timing_bucket="amc",
+        notification_time_pt="2026-07-30T12:45:00-07:00",
+        timing_confidence="inferred_bucket",
+        eps_estimate=1.2,
+        revenue_estimate=100_000_000_000,
+        analyst_count=20,
+        price_target_low=150,
+        price_target_mean=200,
+        price_target_high=250,
+        rating_consensus="buy",
+        historical_beat_rate=0.75,
+        prior_quarter_eps_surprise_pct=5.0,
+        expectation_risk_level="elevated_expectations",
+    )
+
+    message = format_pre_earnings_preview(preview)
+
+    assert "Pre-earnings consensus: AAPL" in message
+    assert "bullish continuation watch only if" in message
+    assert "sell-the-news risk if" in message
+
+
+class FakeFMPClient:
+    def get(self, endpoint, params=None):
+        assert endpoint == "earnings-calendar"
+        return [
+            {"symbol": "AAPL", "date": "2026-06-04", "time": "AMC", "epsEstimated": 1.0},
+            {"symbol": "FAIL", "date": "2026-06-04", "time": "AMC", "epsEstimated": 1.0},
+        ]
+
+    def safe_get(self, endpoint, params=None, **kwargs):
+        symbol = (params or {}).get("symbol") or (params or {}).get("symbols")
+        if symbol == "FAIL":
+            raise RuntimeError("symbol-specific failure")
+        if endpoint == "earnings":
+            return [{"date": "2026-06-04", "epsActual": 1.2, "epsEstimated": 1.0}]
+        if endpoint == "analyst-estimates":
+            return [{"date": "2026-06-04", "epsAvg": 1.0, "revenueAvg": 100.0, "analystCount": 5}]
+        if endpoint == "price-target-summary":
+            return {"rating": "Buy"}
+        if endpoint == "price-target-consensus":
+            return {"targetLow": 100, "targetMean": 120, "targetHigh": 140}
+        if endpoint == "quote":
+            return [{"price": 102.0, "previousClose": 100.0}]
+        return None
+
+
+class FakeNewsProvider:
+    def fetch_news(self, **kwargs):
+        symbol = kwargs["symbol"]
+        if symbol == "FAIL":
+            raise RuntimeError("Alpha Vantage rate limit")
+        return normalize_alpha_vantage_news(
+            [{
+                "title": f"{symbol} earnings preview",
+                "source": "Example",
+                "url": f"https://example.com/{symbol.lower()}",
+                "time_published": "20260604T120000",
+            }],
+            symbol=symbol,
+            report_date=kwargs["report_date"],
+        )
+
+
+def test_workflow_does_not_crash_when_one_symbol_fails(tmp_path):
+    config = EarningsConfig(
+        fmp_api_key="test",
+        alphavantage_api_key="av-test",
+        discord_webhook_url="",
+        earnings_lookahead_days=1,
+        universe_mode="watchlist_only",
+        watchlist_symbols=["AAPL", "FAIL"],
+        max_deep_analysis_candidates=10,
+        request_timeout_seconds=1,
+        request_retry_count=0,
+        request_throttle_seconds=0,
+        timezone_user="America/Los_Angeles",
+        timezone_market="America/New_York",
+        bmo_notification_time_pt="04:00",
+        amc_notification_time_pt="12:45",
+        morning_report_time_pt="05:30",
+        pre_close_amc_report_time_pt="12:45",
+        post_market_report_time_pt="15:30",
+        publish_state_ttl_days=14,
+        market_reaction_update_threshold_pct=1.5,
+        news_limit=20,
+        output_dir=tmp_path / "earnings",
+        dry_run=True,
+    )
+
+    result = run_earnings_workflow(
+        config=config,
+        command="run-daily-earnings-workflow",
+        as_of=date(2026, 6, 4),
+        client=FakeFMPClient(),
+        news_provider=FakeNewsProvider(),
+        send_discord=False,
+    )
+
+    assert len(result.candidates) == 2
+    assert any("FAIL" in warning for warning in result.warnings)
+    assert result.published_messages
+    assert (tmp_path / "earnings" / "publish_state.json").exists()
+
+
+def test_earnings_workflow_continues_when_news_unavailable(tmp_path):
+    class FailingNewsProvider:
+        def fetch_news(self, **kwargs):
+            raise RuntimeError("Alpha Vantage unavailable")
+
+    config = EarningsConfig(
+        fmp_api_key="test",
+        alphavantage_api_key="av-test",
+        discord_webhook_url="",
+        earnings_lookahead_days=1,
+        universe_mode="watchlist_only",
+        watchlist_symbols=["AAPL"],
+        max_deep_analysis_candidates=10,
+        request_timeout_seconds=1,
+        request_retry_count=0,
+        request_throttle_seconds=0,
+        timezone_user="America/Los_Angeles",
+        timezone_market="America/New_York",
+        bmo_notification_time_pt="04:00",
+        amc_notification_time_pt="12:45",
+        morning_report_time_pt="05:30",
+        pre_close_amc_report_time_pt="12:45",
+        post_market_report_time_pt="15:30",
+        publish_state_ttl_days=14,
+        market_reaction_update_threshold_pct=1.5,
+        news_limit=20,
+        output_dir=tmp_path / "earnings",
+        dry_run=True,
+    )
+
+    result = run_earnings_workflow(
+        config=config,
+        command="run-daily-earnings-workflow",
+        as_of=date(2026, 6, 4),
+        client=FakeFMPClient(),
+        news_provider=FailingNewsProvider(),
+        send_discord=False,
+    )
+
+    assert len(result.candidates) == 1
+    assert any("Alpha Vantage news unavailable" in warning for warning in result.warnings)
+    assert result.published_messages

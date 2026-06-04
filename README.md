@@ -235,7 +235,59 @@ EXDIVIDEND_DRY_RUN=false
 python scripts/run_get_exdividend_date.py --dry-run
 ```
 
-## 9. Monitor Watchlist
+## 9. Earnings Intelligence
+
+Earnings intelligence 是 batch workflow，不是实时 watcher。FMP 用于 earnings calendar、
+analyst estimates、financial/price data；Alpha Vantage `NEWS_SENTIMENT` 用于 earnings news。
+每次命令只运行一次，
+只发布相对 `data/earnings/publish_state.json` 的增量内容，然后退出。
+
+主要输出目录：
+
+```text
+data/earnings/
+  calendar/
+  previews/
+  post_release/
+  market_reaction/
+  media/
+  notifications/
+  logs/
+  publish_state.json
+```
+
+常用命令：
+
+```bash
+python -m earnings_system.cli scan-earnings-calendar --days 7 --dry-run
+python -m earnings_system.cli run-morning-earnings-report
+python -m earnings_system.cli run-pre-close-amc-report
+python -m earnings_system.cli run-post-market-earnings-report
+python -m earnings_system.cli run-daily-earnings-workflow
+```
+
+推荐用 cron 或外部 scheduler 触发：
+
+```text
+05:30 PT  run-morning-earnings-report
+12:45 PT  run-pre-close-amc-report
+15:30 PT  run-post-market-earnings-report
+```
+
+关键配置：
+
+```text
+ALPHAVANTAGE_API_KEY=
+DISCORD_EARNINGS_WEBHOOK_URL=
+EARNINGS_LOOKAHEAD_DAYS=7
+EARNINGS_UNIVERSE_MODE=calendar_all_limited
+EARNINGS_WATCHLIST_SYMBOLS=NVDA,AMD,AAPL,MSFT,AMZN,META,GOOGL,TSLA
+EARNINGS_MAX_DEEP_ANALYSIS_CANDIDATES=25
+EARNINGS_NEWS_LIMIT=20
+EARNINGS_OUTPUT_DIR=data/earnings
+```
+
+## 10. Monitor Watchlist
 
 查看当前 watchlist：
 
@@ -287,7 +339,7 @@ Monitor 支持 `1m`、`3m`、`5m` 三种 K 线周期。切换周期时，monitor
 5m -> compression 2 bars, EMA exit 3 bars, stall 2 bars, max one-bar return 2.0%
 ```
 
-## 10. 夜间/非交易时段测试
+## 11. 夜间/非交易时段测试
 
 只测试 AI -> monitor watchlist 同步，不打开夜间实时信号：
 
