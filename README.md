@@ -180,7 +180,8 @@ Oracle Ubuntu host
       ├─ monitor              # realtime signal monitor + local admin API
       ├─ discord-bot          # Discord /watch commands from phone
       ├─ premarket-scheduler  # runs AI premarket once per trading day
-      └─ exdividend-scheduler # runs ex-dividend scan once per trading day
+      ├─ exdividend-scheduler # runs ex-dividend scan once per trading day
+      └─ earnings-scheduler   # runs earnings workflow at daily report windows
 ```
 
 ```bash
@@ -195,6 +196,7 @@ monitor              # 实时 1m/3m/5m signal monitor + local admin API
 discord-bot          # Discord /watch add/remove/set/list/status/period
 premarket-scheduler  # 每个美股交易日运行一次盘前助手
 exdividend-scheduler # 每个美股交易日盘前运行一次除息股票评分
+earnings-scheduler   # 每个美股交易日按 earnings report windows 运行
 ```
 
 查看日志：
@@ -204,6 +206,7 @@ docker compose logs -f monitor
 docker compose logs -f discord-bot
 docker compose logs -f premarket-scheduler
 docker compose logs -f exdividend-scheduler
+docker compose logs -f earnings-scheduler
 ```
 
 重启单个服务：
@@ -266,13 +269,23 @@ python -m earnings_system.cli run-post-market-earnings-report
 python -m earnings_system.cli run-daily-earnings-workflow
 ```
 
-推荐用 cron 或外部 scheduler 触发：
+Docker scheduler：
+
+```bash
+docker compose up -d earnings-scheduler
+docker compose logs -f earnings-scheduler
+```
+
+`earnings-scheduler` 会在每个美股交易日按下面时间触发现有 CLI 命令，并用
+`data/earnings/.scheduler/` 下的 `.done` 文件避免容器重启后重复发送：
 
 ```text
 05:30 PT  run-morning-earnings-report
 12:45 PT  run-pre-close-amc-report
 15:30 PT  run-post-market-earnings-report
 ```
+
+如果你想用 cron 或外部 scheduler，也可以直接触发上面的 one-shot CLI 命令。
 
 关键配置：
 
@@ -285,6 +298,9 @@ EARNINGS_WATCHLIST_SYMBOLS=NVDA,AMD,AAPL,MSFT,AMZN,META,GOOGL,TSLA
 EARNINGS_MAX_DEEP_ANALYSIS_CANDIDATES=25
 EARNINGS_NEWS_LIMIT=20
 EARNINGS_NEWS_DIGEST_MAX_ITEMS=3
+EARNINGS_SCHEDULER_POLL_SECONDS=30
+EARNINGS_TEST_RUN_ON_START=false
+EARNINGS_SKIP_DISCORD=false
 EARNINGS_OUTPUT_DIR=data/earnings
 ```
 

@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt
 
 COPY app /app/app
+COPY earnings_system /app/earnings_system
 COPY ops /app/ops
 COPY scripts /app/scripts
 

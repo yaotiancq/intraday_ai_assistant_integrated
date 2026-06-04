@@ -65,3 +65,16 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  earnings-scheduler:
+    image: intraday-ai-assistant-integrated:latest
+    container_name: earnings-scheduler
+    network_mode: host
+    env_file:
+      - .env
+    command:
+      - python
+      - scripts/run_daily_earnings_scheduler.py
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

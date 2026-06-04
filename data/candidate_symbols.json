@@ -27,6 +27,7 @@
     "QCOM",
     "QQQ",
     "SLB",
+    "SMH",
     "SNOW",
     "SOXX",
     "SPY",
@@ -34,6 +35,7 @@
     "TSM",
     "WMT",
     "XLE",
+    "XLK",
     "XOM"
   ],
   "reason": {
@@ -52,11 +54,13 @@
     ],
     "ARM": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "ASML": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "AVGO": [
       "core_watchlist",
@@ -69,7 +73,8 @@
     ],
     "COST": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "CRM": [
       "core_watchlist",
@@ -119,7 +124,8 @@
     ],
     "NOW": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "NVDA": [
       "core_watchlist",
@@ -136,8 +142,7 @@
     ],
     "PLTR": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "QCOM": [
       "core_watchlist",
@@ -151,6 +156,9 @@
     "SLB": [
       "core_watchlist",
       "news_catalyst"
+    ],
+    "SMH": [
+      "premarket_mover"
     ],
     "SNOW": [
       "core_watchlist",
@@ -169,14 +177,19 @@
     ],
     "TSM": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "WMT": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "XLE": [
       "news_catalyst"
+    ],
+    "XLK": [
+      "premarket_mover"
     ],
     "XOM": [
       "core_watchlist",
@@ -186,7 +199,7 @@
   "counts": {
     "core": 33,
     "news": 33,
-    "movers": 9,
-    "total": 35
+    "movers": 16,
+    "total": 37
   }
 }
