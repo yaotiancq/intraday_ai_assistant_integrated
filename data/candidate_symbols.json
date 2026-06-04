@@ -27,7 +27,6 @@
     "QCOM",
     "QQQ",
     "SLB",
-    "SMH",
     "SNOW",
     "SOXX",
     "SPY",
@@ -44,7 +43,8 @@
     ],
     "AMD": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "AMZN": [
       "core_watchlist",
@@ -60,7 +60,8 @@
     ],
     "AVGO": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "COP": [
       "core_watchlist",
@@ -72,7 +73,8 @@
     ],
     "CRM": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "CVX": [
       "core_watchlist",
@@ -88,7 +90,8 @@
     ],
     "INTC": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "IWM": [
       "core_watchlist"
@@ -124,7 +127,8 @@
     ],
     "ORCL": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "PEP": [
       "core_watchlist",
@@ -137,7 +141,8 @@
     ],
     "QCOM": [
       "core_watchlist",
-      "news_catalyst"
+      "news_catalyst",
+      "premarket_mover"
     ],
     "QQQ": [
       "core_watchlist",
@@ -147,17 +152,11 @@
       "core_watchlist",
       "news_catalyst"
     ],
-    "SMH": [
-      "news_catalyst",
-      "premarket_mover"
-    ],
     "SNOW": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "SOXX": [
-      "news_catalyst",
       "premarket_mover"
     ],
     "SPY": [
@@ -166,13 +165,11 @@
     ],
     "TSLA": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "TSM": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ],
     "WMT": [
       "core_watchlist",
@@ -183,14 +180,13 @@
     ],
     "XOM": [
       "core_watchlist",
-      "news_catalyst",
-      "premarket_mover"
+      "news_catalyst"
     ]
   },
   "counts": {
     "core": 33,
-    "news": 35,
-    "movers": 8,
-    "total": 36
+    "news": 33,
+    "movers": 9,
+    "total": 35
   }
 }

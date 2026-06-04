@@ -13,6 +13,8 @@ venv/
 data/*.json
 data/*.md
 data/*.txt
+data/*
+
 logs/
 
 *.zip
@@ -23,3 +25,5 @@ logs/
 
 oracle.txt
 *.key
+
+update_remote.sh

@@ -1,20 +1,19 @@
 {
-  "score": 32.3,
-  "label": "mild_risk_on",
-  "summary": "市场风险偏好偏强；强势板块：SMH, SOXX, XLY, XRT；弱势板块：XLE。",
+  "score": 6.8,
+  "label": "neutral_choppy",
+  "summary": "市场偏震荡，方向确认度一般；强势板块：SMH, SOXX；弱势板块：XLF, XLY。",
   "index_changes": {
-    "SPY": 0.038,
-    "QQQ": 0.369,
-    "IWM": 0.199,
-    "DIA": 0.134
+    "SPY": -0.18,
+    "QQQ": 0.201,
+    "IWM": -0.678,
+    "DIA": -0.538
   },
   "strong_sectors": [
     "SMH",
-    "SOXX",
-    "XLY",
-    "XRT"
+    "SOXX"
   ],
   "weak_sectors": [
-    "XLE"
+    "XLF",
+    "XLY"
   ]
 }

@@ -33,6 +33,10 @@ def _flag_path(data_dir: Path, date_iso: str) -> Path:
     return data_dir / f".exdividend_ran_{date_iso}"
 
 
+def _mark_complete(data_dir: Path, date_iso: str, tz: ZoneInfo) -> None:
+    _flag_path(data_dir, date_iso).write_text(datetime.now(tz).isoformat(), encoding="utf-8")
+
+
 def build_exdividend_command(
     *,
     dry_run: bool,
@@ -66,6 +70,25 @@ def _run_once(*, dry_run: bool, top: int, max_candidates: int, delay_seconds: fl
     return subprocess.run(cmd, cwd=str(ROOT), check=False).returncode
 
 
+def run_startup_once_if_needed(
+    *,
+    data_dir: Path,
+    tz: ZoneInfo,
+    dry_run: bool,
+    top: int,
+    max_candidates: int,
+    delay_seconds: float,
+) -> bool:
+    startup_now = datetime.now(tz)
+    startup_date = startup_now.date().isoformat()
+    print("[exdividend-scheduler] EXDIVIDEND_TEST_RUN_ON_START=true, running once immediately.", flush=True)
+    returncode = _run_once(dry_run=dry_run, top=top, max_candidates=max_candidates, delay_seconds=delay_seconds)
+    if returncode == 0 and not dry_run:
+        _mark_complete(data_dir, startup_date, tz)
+        print(f"[exdividend-scheduler] marked {startup_date} complete after startup run.", flush=True)
+    return returncode == 0
+
+
 def main() -> None:
     load_dotenv(override=False)
     settings = load_settings()
@@ -88,8 +111,14 @@ def main() -> None:
     )
 
     if test_run_on_start:
-        print("[exdividend-scheduler] EXDIVIDEND_TEST_RUN_ON_START=true, running once immediately.", flush=True)
-        _run_once(dry_run=dry_run, top=top, max_candidates=max_candidates, delay_seconds=delay_seconds)
+        run_startup_once_if_needed(
+            data_dir=settings.data_dir,
+            tz=tz,
+            dry_run=dry_run,
+            top=top,
+            max_candidates=max_candidates,
+            delay_seconds=delay_seconds,
+        )
 
     while True:
         now = datetime.now(tz)
@@ -120,7 +149,7 @@ def main() -> None:
                 delay_seconds=delay_seconds,
             )
             if returncode == 0:
-                flag_path.write_text(datetime.now(tz).isoformat(), encoding="utf-8")
+                _mark_complete(settings.data_dir, today, tz)
                 print(f"[exdividend-scheduler] marked {today} complete.", flush=True)
             else:
                 print(f"[exdividend-scheduler] report failed with exit code {returncode}; will retry.", flush=True)
