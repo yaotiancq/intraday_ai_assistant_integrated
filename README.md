@@ -286,6 +286,8 @@ docker compose logs -f earnings-scheduler
 ```
 
 如果你想用 cron 或外部 scheduler，也可以直接触发上面的 one-shot CLI 命令。
+`EARNINGS_TEST_RUN_ON_START=true` 只用于启动健康检查；它会立即运行一次
+`run-daily-earnings-workflow`，但不会占用当天的 scheduled slots。
 
 关键配置：
 

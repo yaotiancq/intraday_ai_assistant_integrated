@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from app.earnings_system.config import EarningsConfig
 from scripts import run_daily_earnings_scheduler as scheduler
@@ -64,7 +63,7 @@ def test_earnings_flag_path_uses_output_dir_date_and_command():
     )
 
 
-def test_startup_run_marks_all_scheduled_jobs_complete(tmp_path, monkeypatch):
+def test_startup_run_does_not_mark_scheduled_jobs_complete(tmp_path, monkeypatch):
     calls = []
     jobs = scheduler.scheduled_jobs(_config(tmp_path))
 
@@ -75,18 +74,15 @@ def test_startup_run_marks_all_scheduled_jobs_complete(tmp_path, monkeypatch):
     monkeypatch.setattr(scheduler, "_run_once", fake_run_once)
 
     ok = scheduler.run_startup_once_if_needed(
-        output_dir=tmp_path,
-        tz=ZoneInfo("UTC"),
         dry_run=False,
         skip_discord=False,
-        jobs=jobs,
     )
 
-    today = scheduler.datetime.now(ZoneInfo("UTC")).date().isoformat()
+    today = scheduler.datetime.now().date().isoformat()
     assert ok is True
     assert calls == [("run-daily-earnings-workflow", {"dry_run": False, "skip_discord": False})]
     for job in jobs:
-        assert scheduler._flag_path(tmp_path, today, job.command).exists()
+        assert not scheduler._flag_path(tmp_path, today, job.command).exists()
 
 
 def test_startup_dry_run_does_not_mark_jobs_complete(tmp_path, monkeypatch):
@@ -98,14 +94,11 @@ def test_startup_dry_run_does_not_mark_jobs_complete(tmp_path, monkeypatch):
     monkeypatch.setattr(scheduler, "_run_once", fake_run_once)
 
     ok = scheduler.run_startup_once_if_needed(
-        output_dir=tmp_path,
-        tz=ZoneInfo("UTC"),
         dry_run=True,
         skip_discord=False,
-        jobs=jobs,
     )
 
-    today = scheduler.datetime.now(ZoneInfo("UTC")).date().isoformat()
+    today = scheduler.datetime.now().date().isoformat()
     assert ok is True
     for job in jobs:
         assert not scheduler._flag_path(tmp_path, today, job.command).exists()

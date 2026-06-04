@@ -84,19 +84,16 @@ def _run_once(command: str, *, dry_run: bool, skip_discord: bool) -> int:
 
 def run_startup_once_if_needed(
     *,
-    output_dir: Path,
-    tz: ZoneInfo,
     dry_run: bool,
     skip_discord: bool,
-    jobs: list[ScheduledEarningsJob],
 ) -> bool:
-    startup_date = datetime.now(tz).date().isoformat()
     print("[earnings-scheduler] EARNINGS_TEST_RUN_ON_START=true, running daily workflow once.", flush=True)
     returncode = _run_once("run-daily-earnings-workflow", dry_run=dry_run, skip_discord=skip_discord)
-    if returncode == 0 and not dry_run:
-        for job in jobs:
-            _mark_complete(output_dir, startup_date, job.command, tz)
-        print(f"[earnings-scheduler] marked all earnings jobs complete for {startup_date}.", flush=True)
+    if returncode == 0:
+        print(
+            "[earnings-scheduler] startup test run complete; scheduled jobs remain pending.",
+            flush=True,
+        )
     return returncode == 0
 
 
@@ -122,11 +119,8 @@ def main() -> None:
 
     if test_run_on_start:
         run_startup_once_if_needed(
-            output_dir=config.output_dir,
-            tz=tz,
             dry_run=dry_run,
             skip_discord=skip_discord,
-            jobs=jobs,
         )
 
     while True:
