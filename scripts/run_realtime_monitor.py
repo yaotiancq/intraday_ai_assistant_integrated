@@ -106,7 +106,8 @@ DEFAULT_SYMBOLS = [
     # Mega-cap / high-volume stocks
     "US.NVDA", "US.TSLA", "US.AMD", "US.AAPL", "US.MSFT", "US.AMZN", "US.META",
     "US.GOOGL", "US.AVGO", "US.PLTR", "US.INTC", "US.MU", "US.SNDK", "US.STX", "US.ARM",
-    "US.NOW",  "US.ORCL", "US.TSM", "US.AVGO", "US.MRVL", "US.QCOM", "US.SNOW",
+    "US.NOW",  "US.ORCL", "US.TSM", "US.MRVL", "US.QCOM", "US.SNOW",
+    "US.TQQQ", "US.SQQQ", "US.ZETA", "US.FLNC", "US.JPM",
 ]
 
 FUTU_HOST = "127.0.0.1"
