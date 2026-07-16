@@ -9,9 +9,12 @@ from app.llm.prompts import build_premarket_prompt, build_single_stock_prompt
 class OpenAIReportClient:
     api_key: str
     model: str = 'gpt-5-mini'
+    fallback_on_error: bool = True
 
     def generate_premarket_report(self, evidence_pack: Dict[str, Any]) -> str:
         if not self.api_key:
+            if not self.fallback_on_error:
+                raise ValueError('OPENAI_API_KEY is empty')
             return fallback_premarket_report(evidence_pack, reason='OPENAI_API_KEY is empty')
         try:
             from openai import OpenAI
@@ -22,6 +25,8 @@ class OpenAIReportClient:
             )
             return getattr(resp, 'output_text', '') or str(resp)
         except Exception as exc:
+            if not self.fallback_on_error:
+                raise
             return fallback_premarket_report(evidence_pack, reason=f'OpenAI call failed: {exc}')
 
     def generate_single_stock_report(self, evidence_pack: Dict[str, Any]) -> str:

@@ -52,6 +52,40 @@ def test_run_premarket_script_dry_run(tmp_path):
     assert res.returncode == 0, res.stderr
     assert '截至时间' in res.stdout
     assert (tmp_path / 'data' / 'premarket_report.md').exists()
+    assert (tmp_path / 'data' / 'premarket_report_status.json').exists()
+
+
+def test_run_premarket_script_disable_llm(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    env = write_env(tmp_path)
+    res = run_cmd([
+        'scripts/run_premarket.py',
+        '--env-file', str(env),
+        '--dry-run',
+        '--force-run',
+        '--allow-non-trading-day-test',
+        '--disable-llm',
+    ], root)
+    assert res.returncode == 0, res.stderr
+    assert '[premarket_report] mode=rule_based reason=llm_disabled' in res.stdout
+    assert '报告模式：规则兜底' in res.stdout
+
+
+def test_run_premarket_discord_failure_preserves_local_outputs(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    env = write_env(tmp_path)
+    res = run_cmd([
+        'scripts/run_premarket.py',
+        '--env-file', str(env),
+        '--send-discord',
+        '--force-run',
+        '--allow-non-trading-day-test',
+        '--disable-llm',
+    ], root)
+    assert res.returncode == 0, res.stderr
+    assert '[discord_error]' in res.stdout
+    assert (tmp_path / 'data' / 'premarket_report.md').exists()
+    assert (tmp_path / 'data' / 'premarket_report_status.json').exists()
 
 
 def test_run_single_stock_script_dry_run(tmp_path):

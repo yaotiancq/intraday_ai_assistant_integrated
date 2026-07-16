@@ -123,6 +123,15 @@ MONITOR_ALLOW_EMPTY_ADMIN_TOKEN=false
 python scripts/run_premarket.py --dry-run
 ```
 
+不调用 OpenAI、直接生成规则兜底报告：
+
+```bash
+python scripts/run_premarket.py \
+  --disable-llm \
+  --dry-run \
+  --force-run
+```
+
 非交易日或夜间测试：
 
 ```bash
@@ -153,6 +162,7 @@ data/candidate_symbols.json
 data/evidence_pack_premarket.json
 data/technical_levels.json
 data/premarket_report.md
+data/premarket_report_status.json
 data/warnings.json
 ```
 

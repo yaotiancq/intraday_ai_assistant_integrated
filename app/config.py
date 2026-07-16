@@ -29,6 +29,9 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
 class Settings:
     openai_api_key: str
     openai_model: str
+    premarket_llm_enabled: bool
+    premarket_rule_fallback_enabled: bool
+    openai_max_retries: int
 
     futu_host: str
     futu_port: int
@@ -63,6 +66,7 @@ class Settings:
     monitor_update_mode: str
     monitor_update_tiers: List[str]
     monitor_update_max_symbols: int
+    monitor_test_mode: bool
     premarket_force_run: bool
     allow_non_trading_day_test: bool
 
@@ -79,6 +83,9 @@ def load_settings(env_file: str | Path | None = None) -> Settings:
     return Settings(
         openai_api_key=os.getenv('OPENAI_API_KEY', '').strip(),
         openai_model=os.getenv('OPENAI_MODEL', 'gpt-5-mini').strip(),
+        premarket_llm_enabled=_as_bool(os.getenv('PREMARKET_LLM_ENABLED'), True),
+        premarket_rule_fallback_enabled=_as_bool(os.getenv('PREMARKET_RULE_FALLBACK_ENABLED'), True),
+        openai_max_retries=int(os.getenv('OPENAI_MAX_RETRIES', '1')),
         futu_host=os.getenv('FUTU_HOST', '127.0.0.1').strip(),
         futu_port=int(os.getenv('FUTU_PORT', '11111')),
         futu_market_prefix=os.getenv('FUTU_MARKET_PREFIX', 'US').strip().upper(),
@@ -109,6 +116,7 @@ def load_settings(env_file: str | Path | None = None) -> Settings:
         monitor_update_mode=os.getenv('MONITOR_UPDATE_MODE', 'add').strip().lower(),
         monitor_update_tiers=_split_csv(os.getenv('MONITOR_UPDATE_TIERS', 'A,B')),
         monitor_update_max_symbols=int(os.getenv('MONITOR_UPDATE_MAX_SYMBOLS', '12')),
+        monitor_test_mode=_as_bool(os.getenv('MONITOR_TEST_MODE'), False),
         premarket_force_run=_as_bool(os.getenv('PREMARKET_FORCE_RUN'), False),
         allow_non_trading_day_test=_as_bool(os.getenv('ALLOW_NON_TRADING_DAY_TEST'), False),
     )

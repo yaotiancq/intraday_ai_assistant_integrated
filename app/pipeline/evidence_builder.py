@@ -24,10 +24,13 @@ def build_premarket_evidence_pack(
         tech = technicals.get(symbol, {})
         # Simple sector strength approximation: mega/semis get boost when SMH/XLK strong.
         sector_strong = False
+        sector_confirmation_etf = None
         if symbol in {'NVDA', 'AMD', 'AVGO', 'QCOM', 'INTC', 'ARM', 'MU', 'TSM', 'ASML'}:
-            sector_strong = bool({'SMH', 'SOXX'} & strong_sector_set)
+            sector_confirmation_etf = _first_present(['SMH', 'SOXX'], strong_sector_set)
+            sector_strong = sector_confirmation_etf is not None
         if symbol in {'MSFT', 'AAPL', 'AMZN', 'GOOGL', 'META', 'TSLA', 'CRM', 'ORCL', 'NOW', 'PLTR', 'SNOW'}:
-            sector_strong = 'XLK' in strong_sector_set or 'QQQ' in strong_sector_set
+            sector_confirmation_etf = _first_present(['XLK', 'QQQ'], strong_sector_set)
+            sector_strong = sector_confirmation_etf is not None
         row = score_candidate(
             symbol=symbol,
             snapshot=snapshot_by_symbol.get(symbol),
@@ -39,6 +42,8 @@ def build_premarket_evidence_pack(
         row['snapshot'] = snapshot_by_symbol.get(symbol, {})
         row['technical'] = tech
         row['news'] = [n for n in news_items if symbol in n.get('related_symbols', [])][:5]
+        if sector_confirmation_etf:
+            row['sector_confirmation_etf'] = sector_confirmation_etf
         scored.append(row)
 
     scored.sort(key=lambda x: x['priority_score'], reverse=True)
@@ -53,6 +58,14 @@ def build_premarket_evidence_pack(
         'timezone': context.get('timezone'),
         'session': context.get('session'),
         'is_trading_day': context.get('is_trading_day'),
+        'data_status': {
+            'market_data_status': context.get('market_data_status'),
+            'market_data_source': context.get('market_data_source'),
+            'market_data_errors': context.get('market_data_errors', []),
+            'mock_data': context.get('market_data_source') == 'mock',
+            'non_trading_day_test': context.get('trading_day_gate_reason') != 'scheduled_us_trading_day',
+            'trading_day_gate_reason': context.get('trading_day_gate_reason'),
+        },
         'market_regime': market_regime,
         'index_snapshot': {s['symbol']: s for s in index_snapshots},
         'sector_snapshot': {s['symbol']: s for s in sector_snapshots},
@@ -75,3 +88,10 @@ def build_premarket_evidence_pack(
             'must_include_risk_warning': True,
         },
     }
+
+
+def _first_present(candidates: List[str], values: set[str]) -> str | None:
+    for candidate in candidates:
+        if candidate in values:
+            return candidate
+    return None
