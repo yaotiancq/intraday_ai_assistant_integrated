@@ -1,0 +1,8 @@
+{
+  "fixture_version": 1,
+  "trade_date": "2026-07-16",
+  "description": "Deterministic synthetic replay day containing a valid opening-range breakout and breakdown classifications.",
+  "synthetic_defaults": true,
+  "generator": "deterministic_market_data_v1",
+  "market_data": {}
+}

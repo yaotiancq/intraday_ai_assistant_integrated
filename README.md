@@ -1,451 +1,421 @@
-# Intraday AI Assistant（日内投资助手）
+# Deterministic Fixed-30 Intraday Market Analysis
 
-这是一个**只读行情数据 + 新闻催化 + 技术指标 + 优先级评分 + LLM 盘前报告 + Discord 推送 + Futu 实时监控**项目。
+This repository runs one deterministic strategy engine over one explicitly configured universe of 30 US-listed large-cap stocks. It validates the universe before the open, produces a point-in-time premarket shortlist, confirms or rejects setups after the first 5 and 15 regular-session minutes, and saves an auditable report for every stage. It does not offer competing analysis modes. The stock list and every threshold are initial research defaults, not universal truths.
 
-它不是自动下单系统，不包含下单、撤单、修改持仓等交易代码。核心目标是：
+> **Research and decision support only.** The fixed-30 workflow does not place, route, modify, or cancel orders. It does not promise signals, trades, fills, or profits. Market data may be delayed, stale, incomplete, or revised; do not treat its output as executable real-time advice.
 
-- 每个美股交易日盘前生成结构化观察报告
-- 根据 evidence pack 给股票分 A/B/C/D 优先级
-- 把 A/B 级股票同步到实时监控 watchlist
-- 在实时监控中输出 WATCH/BUY/SELL 信号提示
-- 通过 Discord webhook 和 slash command 在手机端查看、调整 watchlist
+The core workflow has deliberately narrow boundaries:
 
-集成版额外提供：
+- No full-market, gainers, movers, social-media, or arbitrary-symbol scan.
+- No symbol may enter the workflow unless it is one of the configured 30 stocks. News collection is also intersected with that allowlist.
+- No LLM, OpenAI API, generative model, or free-form AI judgment is used in ranking, setup classification, reporting, or risk gates.
+- No broker order API is called. Position sizing and entry plans are analytical examples only.
+- Comparison ETFs and `VIX` provide context; they never become stock trade candidates.
+- A valid outcome is `NO_TRADE`. The system never fills a quota merely because a stage ran.
 
-- 美股交易日 gate，避免非交易日自动运行盘前任务
-- 盘前助手自动发布 A/B 级候选到 realtime monitor
-- Discord slash command 远程控制 monitor watchlist
-- monitor 默认只在常规交易时段运行
-- 夜间/非交易时段测试开关
-
-## 1. 核心流程
+## Workflow at a glance
 
 ```text
-05:45 PT，美股交易日
-  -> scripts/run_premarket.py --send-discord --send-to-monitor
-  -> 生成盘前 evidence pack 和中文报告
-  -> 报告推送到 Discord
-  -> A/B 级候选股票同步到 realtime monitor
-  -> monitor 在常规交易时段监听 1m/3m/5m K 线信号
-  -> Discord /watch 命令可随时调整 watchlist
+fixed configuration (30 stocks + comparison benchmarks)
+  -> 08:20 ET universe validation
+  -> 08:45 ET premarket filters and deterministic score
+       30 configured -> typically 6-15 eligible (current cap: 12)
+  -> 09:35 ET first-five-minute confirmation
+       -> 4-8 opening watchlist names (current cap: 8)
+  -> 09:45 ET first-fifteen-minute final confirmation
+       -> 0-3 actionable research setups, or NO_TRADE
+  -> atomic dated artifacts + optional notification
 ```
 
-## 2. 项目结构
+Every calculation uses an explicit trade date, `as_of` timestamp, and stage cutoff. An opening stage loads the already persisted premarket snapshot instead of recomputing it with later information.
 
-```text
-app/
-  config.py
-  data_sources/          # Futu / RSS clients
-  indicators/            # 技术指标与关键价位
-  scoring/               # 市场环境与候选股评分
-  pipeline/              # candidate/evidence pack 构建
-  llm/                   # OpenAI prompt 与报告生成
-  validators/            # evidence/report 校验
-  delivery/              # Discord webhook
-  integration/           # 交易日判断、monitor bridge
-  utils/
-ops/
-  premarket_loop.sh
-scripts/
-  run_premarket.py
-  run_single_stock_analysis.py
-  run_realtime_monitor.py
-  run_daily_premarket_scheduler.py
-  discord_watchlist_bot.py
-tests/
-data/
-```
+## Fixed stock universe
 
-## 3. 本地安装
+Membership lives in [`config/market_strategy.json`](config/market_strategy.json). The configured universe must contain exactly these 30 unique stocks; runtime discovery cannot enlarge it.
+
+| Sector | Count | Configured stocks |
+|---|---:|---|
+| Information Technology / 信息技术 | 6 | `AAPL` Apple, `MSFT` Microsoft, `NVDA` NVIDIA, `AMD` Advanced Micro Devices, `AVGO` Broadcom, `TSM` Taiwan Semiconductor Manufacturing |
+| Communication Services / 通信服务 | 3 | `GOOGL` Alphabet, `META` Meta Platforms, `NFLX` Netflix |
+| Consumer Discretionary / 非必需消费 | 4 | `AMZN` Amazon, `TSLA` Tesla, `HD` Home Depot, `MCD` McDonald's |
+| Financials / 金融 | 4 | `JPM` JPMorgan Chase, `BAC` Bank of America, `C` Citigroup, `GS` Goldman Sachs |
+| Health Care / 医疗保健 | 3 | `LLY` Eli Lilly, `UNH` UnitedHealth Group, `JNJ` Johnson & Johnson |
+| Industrials / 工业 | 3 | `CAT` Caterpillar, `GE` GE Aerospace, `BA` Boeing |
+| Energy / 能源 | 2 | `XOM` Exxon Mobil, `CVX` Chevron |
+| Consumer Staples / 必需消费 | 2 | `WMT` Walmart, `COST` Costco |
+| Materials / 原材料 | 1 | `LIN` Linde |
+| Utilities / 公用事业 | 1 | `NEE` NextEra Energy |
+| Real Estate / 房地产 | 1 | `PLD` Prologis |
+| **Total** | **30** | **Fixed; no automatic additions or substitutions** |
+
+### Why these names
+
+The list is a deliberately compact research panel. Its qualitative selection rationale combines large or established market capitalization, historically high trading activity and dollar-volume liquidity, relatively continuous quoted markets, institutional ownership and market relevance, frequent sensitivity to company/sector/macro catalysts, coverage across all 11 GICS-style sectors, and practical suitability for opening-session analysis. A fixed list makes daily outputs comparable, bounds data requests, and prevents a hidden discovery step from changing the sample.
+
+Membership means only that a stock is monitored. It conveys no daily endorsement: every member must independently pass that day's data, liquidity, spread, volume, setup, and risk gates.
+
+This is not a claim that these are the “best” stocks or that membership predicts returns. The list has important biases and limitations:
+
+- It is manually selected and dominated by large and mega-cap companies. Small caps, recent IPOs, less-liquid names, and many industries are underrepresented or absent.
+- It has survivorship, availability, US-listing, liquidity, and attention biases. `TSM` also introduces ADR and non-US issuer considerations.
+- Sector counts are intentionally uneven, so results must not be interpreted as a sector-neutral market sample.
+- A static list can become stale after delistings, symbol changes, corporate actions, structural liquidity deterioration, or business changes.
+- Backtests cover this fixed panel, not the investable US equity market. They cannot substantiate claims about a full-market strategy.
+
+Daily validation may mark a symbol unavailable or data-incomplete for that run; it does not replace the symbol. The separate health review emits only `KEEP`, `REVIEW`, or `POSSIBLE_REPLACEMENT` recommendations. A human must intentionally edit and version the configuration before membership changes.
+
+## Comparison benchmarks
+
+Benchmarks are fetched only to describe market regime, sector/industry direction, and relative strength. They are not counted among the 30 stocks and stock-style setup decisions are disabled for them.
+
+| Group | Symbol | English meaning | 中文说明 |
+|---|---|---|---|
+| Broad market | `SPY` | S&P 500 broad market | 标普 500 大盘 |
+| Broad market | `QQQ` | Nasdaq-100 growth | 纳斯达克 100 成长股 |
+| Broad market | `IWM` | Small-Cap Equities | 小盘股 |
+| Broad market | `DIA` | Dow Jones Large Caps | 道琼斯大盘股 |
+| Sector | `XLK` | Technology | 科技 |
+| Sector | `XLC` | Communication Services | 通信服务 |
+| Sector | `XLY` | Consumer Discretionary | 非必需消费 |
+| Sector | `XLP` | Consumer Staples | 必需消费 |
+| Sector | `XLE` | Energy | 能源 |
+| Sector | `XLF` | Financials | 金融 |
+| Sector | `XLV` | Health Care | 医疗保健 |
+| Sector | `XLI` | Industrials | 工业 |
+| Sector | `XLB` | Materials | 原材料 |
+| Sector | `XLU` | Utilities | 公用事业 |
+| Sector | `XLRE` | Real Estate | 房地产 |
+| Industry | `SMH` | Semiconductor industry | 半导体行业 |
+| Industry | `SOXX` | Semiconductor industry | 半导体行业 |
+| Industry | `IGV` | Software industry | 软件行业 |
+| Industry | `ITA` | Aerospace and defense | 航空航天与国防 |
+| Volatility proxy | `VIX` | Implied-volatility context | 隐含波动率环境 |
+
+Each stock's stock-to-ETF mapping is explicit in configuration and is validated before use.
+
+## Trading-day schedule
+
+`America/New_York` is the authoritative timezone. The scheduler uses timezone-aware datetimes and a trading calendar; it does not hardcode UTC offsets. The Pacific examples below remain three hours earlier under the normal US daylight-saving transition because both zones change clocks, but operators should still rely on the named zones rather than fixed UTC arithmetic.
+
+| Stage | Eastern Time | Pacific Time | Point-in-time cutoff and purpose |
+|---|---:|---:|---|
+| Universe validation | 08:20 ET | 05:20 PT | Validate configuration, quotes, history, symbol status, and data health |
+| Premarket | 08:45 ET | 05:45 PT | Use only evidence available through 08:45 ET |
+| Opening 5m | 09:35 ET | 06:35 PT | Provisional confirmation using the 09:30-09:35 window |
+| Opening 15m | 09:45 ET | 06:45 PT | Final confirmation using the 09:30-09:45 window |
+
+The calendar behavior is explicit:
+
+- Saturdays, Sundays, NYSE holidays, and configured exceptional closures are persisted as `status: SKIPPED` with a stable reason such as `NON_TRADING_DAY`, instead of being treated as empty market sessions.
+- Exchange-calendar early closes and configured early closes are recognized. These opening jobs still run at their normal morning cutoffs because they occur before the close; an early close must not shift the opening window.
+- A late-but-allowed run retains its original scheduled cutoff. It must not consume bars or news that arrived after that cutoff.
+- The default maximum start lateness is 10 minutes. A job outside that window is recorded as missed/skipped rather than silently relabeled on time.
+- Durable per-stage locks and the dated manifest prevent two scheduler processes from completing the same logical run concurrently.
+
+## Stage methodology
+
+### 1. Universe validation
+
+The 08:20 ET gate verifies fixed mode, exactly 30 unique stocks, non-overlap with benchmarks, sector and comparison-ETF metadata, symbol format, recent quote validity and freshness, daily-history completeness, and corporate-action consistency. Provider indications become one of `ACTIVE`, `TEMPORARILY_UNAVAILABLE`, `DATA_INCOMPLETE`, `SYMBOL_CHANGED`, `DELISTED`, or `CONFIGURATION_INVALID`, with stable reason codes.
+
+An affected name is excluded or flagged for that date. The validator never discovers a replacement and never rewrites the configured list.
+
+### 2. Premarket analysis
+
+The 08:45 ET stage processes all 30 configured stocks and their mapped benchmarks. It computes price/liquidity checks, gap percentage, premarket dollar volume and relative volume, spread, daily and intraday technical context, stock-versus-market/sector relative strength, market regime, sector confirmation, volatility, and deterministic catalyst evidence. Regime outputs use stable labels: `STRONG_RISK_ON`, `RISK_ON`, `MIXED`, `RISK_OFF`, `STRONG_RISK_OFF`, `HIGH_VOLATILITY`, `LOW_LIQUIDITY`, or `UNKNOWN`.
+
+News handling is rules based. Sources must pass the configured domain allowlist, symbols are intersected with the fixed universe, timestamps are cutoff-aware, and keyword/phrase rules classify catalyst types. There is no generative summarization or semantic model. Missing or untrusted news cannot add a stock to the universe.
+
+Two transparent candidate paths are supported:
+
+- `EVENT_DRIVEN`: a credible catalyst, sufficiently material gap, or abnormal premarket activity.
+- `RELATIVE_STRENGTH`: unusual liquidity/volume and stock strength or weakness relative to the broad market and mapped ETFs, even without a news catalyst.
+
+Default premarket eligibility includes a price of at least `$5`, average daily dollar volume of at least `$50M`, premarket dollar volume of at least `$750K`, spread no wider than `35 bps`, premarket RVOL of at least `0.8`, and an absolute gap no greater than `15%`. A `0.30%` gap is one configured event threshold, but it is not a mandatory gate for relative-strength candidates. Event-driven defaults include a `2%` gap or `1.5` premarket RVOL, while relative-strength qualification defaults to at least `0.20%` excess-return magnitude. All thresholds are configuration, not universal market truths.
+
+The current shortlist cap is 12, with at most three names from one sector and a default minimum score of 55. The expected operating range is roughly 6-15 eligible names, but zero is allowed and the configured cap governs.
+
+### 3. First-five-minute confirmation
+
+At 09:35 ET, the pipeline loads the persisted premarket candidates and uses only bars through 09:35. It evaluates opening-range structure, VWAP relationship, volume expansion, spread, gap retention, price action, stock/sector/market alignment, and early failed-breakout or failed-breakdown evidence.
+
+This is provisional evidence. The result narrows the list to at most eight names and records `EARLY_CONFIRMED_LONG`, `EARLY_CONFIRMED_SHORT`, `WATCH_LONG`, `WATCH_SHORT`, `EARLY_REJECTED`, or `INSUFFICIENT_DATA` with reason codes; it does not place an order.
+
+### 4. First-fifteen-minute final confirmation
+
+At 09:45 ET, the final stage repeats confirmation over the complete first-15-minute window and checks the persisted premarket and optional five-minute snapshots. Supported setup labels are deterministic:
+
+- `OPENING_DRIVE_LONG` and `OPENING_DRIVE_SHORT`.
+- `OPENING_RANGE_BREAKOUT` and `OPENING_RANGE_BREAKDOWN`.
+- `GAP_AND_GO_LONG` and `GAP_AND_GO_SHORT`.
+- `PREMARKET_HIGH_BREAKOUT` and `PREMARKET_LOW_BREAKDOWN`.
+- `VWAP_RECLAIM` and `VWAP_REJECTION`.
+- `FIRST_PULLBACK_LONG` and `FIRST_PULLBACK_SHORT`.
+- Failure/no-setup labels `FAILED_BREAKOUT`, `FAILED_BREAKDOWN`, `FAILED_GAP_UP`, `FAILED_GAP_DOWN`, and `NO_VALID_SETUP`.
+
+Final decisions are `CONFIRMED_LONG`, `CONFIRMED_SHORT`, `WATCH_LONG`, `WATCH_SHORT`, `NO_TRADE`, `REJECTED`, or `INSUFFICIENT_DATA`. The report records why a setup confirmed, remained watch-only, or failed. It may return zero candidates and `NO_TRADE`; no fallback symbol is injected.
+
+## Scoring and hard gates
+
+Scores rank only names that satisfy required data and risk conditions. A high score cannot override a failed hard gate.
+
+### Premarket score (100 points)
+
+| Component | Weight |
+|---|---:|
+| Liquidity | 10 |
+| Premarket relative volume | 13 |
+| Gap quality | 10 |
+| Catalyst quality | 9 |
+| Technical structure | 14 |
+| Relative strength | 16 |
+| Sector confirmation | 11 |
+| Market regime | 8 |
+| Volatility suitability | 5 |
+| Spread quality | 4 |
+| **Total** | **100** |
+
+### Opening confirmation score (100 points)
+
+| Component | Weight |
+|---|---:|
+| Opening-range structure | 17 |
+| VWAP behavior | 14 |
+| Volume confirmation | 14 |
+| Relative strength | 15 |
+| Market confirmation | 8 |
+| Sector confirmation | 8 |
+| Gap retention | 7 |
+| Price action | 10 |
+| Liquidity/spread | 4 |
+| Extension control | 3 |
+| **Total before penalties** | **100** |
+
+Default penalties include failed breakout/breakdown (`25`), failed gap (`20`), weak volume (`10`), market conflict (`10`), sector conflict (`7`), excessive extension (`12`), poor close (`7`), and wide spread (`15`). The combined final rank uses 40% of the persisted premarket score and 60% of the opening score.
+
+Hard gates cover, at minimum:
+
+- Required snapshots/bars, timestamps, mapped benchmarks, and complete stage windows; default maximum live-data age is 90 seconds.
+- Minimum price and average daily dollar volume, stage-specific premarket dollar volume/RVOL, and maximum spread.
+- Default opening RVOL of at least `1.0`.
+- Opening-range size between `0.05` and `0.80` ATR, gap no greater than `2.5` ATR, entry extension no greater than `0.35` ATR, and breakout extension no greater than `0.25` ATR.
+- Minimum planned reward-to-risk of `1.5` after the configured `5 bps` slippage assumption.
+- Failed-breakout, failed-breakdown, failed-gap, chase/extension, directional-conflict, and market/sector-conflict rules. The default directional-conflict score difference is 8 points.
+
+When a setup survives, the report can show entry zone, invalidation, stop reference, targets, reward/risk, and example sizing using the configured `$150` analytical risk budget and `$10,000` maximum notional. Those values are scenario inputs, not an instruction or broker action.
+
+## Data modes and delayed-data warning
+
+The workflow supports three bounded data modes:
+
+- Futu/Moomoo OpenD for live research data, subject to the user's subscriptions, entitlements, session state, and provider timestamps.
+- Deterministic demo/mock data for installation checks and tests. `.env.example` defaults `DEMO_MODE=true` so a fresh checkout cannot be mistaken for live operation.
+- Replay fixtures for repeatable stage and regression tests.
+
+For Futu, start and log in to OpenD, verify US market-data permissions, set `DEMO_MODE=false`, and configure `FUTU_HOST`, `FUTU_PORT`, and extended-hours access as required. Docker uses host networking so the container can reach a host OpenD at `127.0.0.1:11111`.
+
+> **Delayed-data warning:** a successful connection does not prove that quotes are real time. Inspect provider timestamps and entitlements. The pipeline can reject stale data, but network delay, exchange redistribution delay, missing premarket prints, and later corrections remain possible. Never use generated entry levels as executable prices.
+
+## Installation and configuration
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-## 4. 配置 `.env`
-
-```bash
 cp .env.example .env
-nano .env
 ```
-.env and docker-compose.yml should upload to the project root path
 
-至少填写：
+The main settings are:
 
 ```env
-OPENAI_API_KEY=...
-DISCORD_PREMARKET_WEBHOOK_URL=...
-DISCORD_WEBHOOK_URL=...
-DISCORD_BOT_TOKEN=...
-DISCORD_GUILD_ID=...
-ALLOWED_DISCORD_USER_IDS=...
-WATCHLIST_ADMIN_TOKEN=...
+MARKET_CONFIG_PATH=config/market_strategy.json
+MARKET_OUTPUT_DIR=output/runs
+DATA_DIR=data
 
 FUTU_HOST=127.0.0.1
 FUTU_PORT=11111
 FUTU_EXTENDED_TIME=true
+
+# Safe installation/test default
+DEMO_MODE=true
 ```
 
-生成 `WATCHLIST_ADMIN_TOKEN`：
+No `OPENAI_API_KEY` is required or used by the fixed-30 pipeline. Optional RSS and Discord settings affect bounded data collection or post-persistence notification; they do not change universe membership and notification failure does not erase an analysis artifact.
+
+Validate configuration changes before scheduling them. Thresholds, weights, universe membership, mappings, and `strategy_version` must be reviewed together. A membership or methodology change should receive a new strategy version so historical artifacts are not silently mixed.
+
+## Command-line operation
+
+Use `--help` on each script for the installed command's complete options.
+
+Validate the fixed configuration and current data health:
 
 ```bash
-openssl rand -hex 32
+python scripts/validate_universe.py
 ```
 
-`FUTU_EXTENDED_TIME=true` 建议用于盘前助手，这样报告可以使用盘前 K 线环境。实时 monitor 另有 `MONITOR_EXTENDED_TIME` 和 `MONITOR_FUTU_SESSION`，默认保持常规交易时段：
-
-```env
-MONITOR_TEST_MODE=false
-MONITOR_EXTENDED_TIME=false
-MONITOR_FUTU_SESSION=RTH
-MONITOR_BAR_PERIOD=3m
-MONITOR_ALLOW_EMPTY_ADMIN_TOKEN=false
-```
-
-`WATCHLIST_ADMIN_TOKEN` 必须设置。monitor 现在会拒绝在无 token 状态启动，除非你显式设置 `MONITOR_ALLOW_EMPTY_ADMIN_TOKEN=true` 做隔离本地测试。
-
-## 5. Futu / Moomoo OpenD
-
-运行前请确认：
-
-1. Futu OpenD / Moomoo OpenD 已启动并登录。
-2. OpenD 地址与 `.env` 一致，默认 `127.0.0.1:11111`。
-3. 账号具备所需美股行情权限。
-4. Docker 部署时，本项目使用 `network_mode: host` 连接本机 OpenD。
-
-## 6. 盘前报告
-
-本地 dry-run：
+Generate a non-mutating universe-health recommendation report:
 
 ```bash
-python scripts/run_premarket.py --dry-run
+python scripts/review_fixed_universe.py
 ```
 
-不调用 OpenAI、直接生成规则兜底报告：
+Run the three analysis stages manually for one trade date:
 
 ```bash
-python scripts/run_premarket.py \
-  --disable-llm \
-  --dry-run \
-  --force-run
+python scripts/run_market_analysis.py --stage premarket --date 2026-07-16
+python scripts/run_market_analysis.py --stage opening-5m --date 2026-07-16
+python scripts/run_market_analysis.py --stage opening-15m --date 2026-07-16
 ```
 
-非交易日或夜间测试：
+Hyphenated stage names are normalized to the persisted names `opening_5m` and `opening_15m`. Run stages in time order when using the normal repository because later stages intentionally consume earlier persisted snapshots.
+
+Run the calendar-aware persistent scheduler:
 
 ```bash
-python scripts/run_premarket.py \
-  --dry-run \
-  --force-run \
-  --allow-non-trading-day-test
+python scripts/run_market_scheduler.py
 ```
 
-真实推送 Discord：
+Replay a deterministic fixture:
 
 ```bash
-python scripts/run_premarket.py --send-discord
+python scripts/run_market_analysis.py \
+  --stage opening-15m \
+  --data-source replay \
+  --input-file tests/fixtures/valid_opening_breakout.json
 ```
 
-推送 Discord，并把 A/B 级候选同步到 monitor：
+When `--date` is omitted in replay mode, the fixture's required `trade_date` is used. Supplying a conflicting date is rejected so one fixture cannot silently be relabeled as another session.
 
-```bash
-python scripts/run_premarket.py --send-discord --send-to-monitor
-```
+For a full historical replay, use one clean output date/directory and execute `premarket`, `opening-5m`, then `opening-15m` against the same point-in-time fixture set. Do not mix live and replay artifacts for one date. Use any force/rerun option only intentionally: forced results are audit-visible and should never be used to hide changed configuration or post-cutoff evidence.
 
-生成文件：
+## Persistence, idempotency, and cutoffs
+
+The default dated layout is:
 
 ```text
-data/market_regime.json
-data/news_snapshot.json
-data/candidate_symbols.json
-data/evidence_pack_premarket.json
-data/technical_levels.json
-data/premarket_report.md
-data/premarket_report_status.json
-data/warnings.json
+output/runs/
+  .locks/
+    YYYY-MM-DD/
+      <logical-run-key>.lock
+  YYYY-MM-DD/
+    config_snapshot.json
+    run_manifest.json
+    universe_validation.json
+    premarket.json
+    premarket.md
+    opening_5m.json
+    opening_5m.md
+    opening_15m.json
+    final_report.json
+    final_report.md
 ```
 
-## 7. 单只股票分析
+JSON files are the machine-readable source of truth; Markdown files are operator views. Writes are atomic. `config_snapshot.json` freezes the interpretation used for that dated run, and `run_manifest.json` records stage status, files, attempts, persistence time, and force state.
 
-```bash
-python scripts/run_single_stock_analysis.py --symbol NVDA --dry-run
-```
-
-输出：
+The logical idempotency key is:
 
 ```text
-data/evidence_pack_NVDA.json
-data/stock_report_NVDA.md
+trade_date : stage : strategy_version
 ```
 
-## 8. Docker 运行集成服务
+A terminal result for the same key is not recomputed by default. Stage locks prevent overlap, while manifest checks protect across process restarts. Later stages load prior dated JSON snapshots and validate their date, version, stage, status, and cutoff. This prevents a 09:45 run from silently rebuilding its 08:45 evidence with future information.
 
-典型部署结构：
+Each artifact distinguishes the scheduled cutoff from the actual start time and records whether the process began late. Provider requests and feature windows are anchored to the scheduled cutoff. Missing, stale, malformed, post-cutoff, or cross-version input fails closed with explicit reasons rather than being silently accepted.
 
-```text
-Oracle Ubuntu host
-  ├─ Futu OpenD on 127.0.0.1:11111
-  └─ docker compose
-      ├─ monitor              # realtime signal monitor + local admin API
-      ├─ discord-bot          # Discord /watch commands from phone
-      ├─ premarket-scheduler  # runs AI premarket once per trading day
-      ├─ exdividend-scheduler # runs ex-dividend scan once per trading day
-      └─ earnings-scheduler   # runs earnings workflow at daily report windows
-```
+## Docker deployment
+
+The default Compose service is the fixed-30 scheduler:
 
 ```bash
 docker compose build
-docker compose up -d
+docker compose up -d market-scheduler
+docker compose logs -f market-scheduler
 ```
 
-服务：
-
-```text
-monitor              # 实时 1m/3m/5m signal monitor + local admin API
-discord-bot          # Discord /watch add/remove/set/list/status/period
-premarket-scheduler  # 每个美股交易日运行一次盘前助手
-exdividend-scheduler # 每个美股交易日盘前运行一次除息股票评分
-earnings-scheduler   # 每个美股交易日按 earnings report windows 运行
-```
-
-查看日志：
+Stop it with:
 
 ```bash
-docker compose logs -f monitor
-docker compose logs -f discord-bot
-docker compose logs -f premarket-scheduler
-docker compose logs -f exdividend-scheduler
-docker compose logs -f earnings-scheduler
+docker compose stop market-scheduler
 ```
 
-重启单个服务：
+The service runs `python scripts/run_market_scheduler.py`, sets `TZ=America/New_York`, mounts `./config` read-only, persists `./output`, and uses host networking for OpenD access. The application trading calendar remains authoritative; the container timezone is an operational convenience, not a substitute for timezone-aware timestamps.
+
+The old real-time monitor and Discord watchlist bot are optional and outside the deterministic analysis contract. They run only when the separate profile is requested:
 
 ```bash
-docker compose up -d --force-recreate monitor
+docker compose --profile monitor up -d monitor discord-bot
 ```
 
-除息扫描默认每天美股交易日 `05:30`（`TIMEZONE` 时区）运行一次，并把评分结果发送到
-`DISCORD_EXDIVIDEND_WEBHOOK_URL`：
+Their alerts must not be represented as fixed-30 pipeline decisions or included in its performance statistics.
+
+## Testing and deterministic replay
+
+Run the repository test suite:
 
 ```bash
-docker compose up -d exdividend-scheduler
+python -m pytest -q
 ```
 
-可在 `.env` 调整：
-
-```text
-EXDIVIDEND_RUN_TIME=05:30
-EXDIVIDEND_TOP=20
-EXDIVIDEND_MAX_CANDIDATES=0
-EXDIVIDEND_DELAY_SECONDS=0.2
-EXDIVIDEND_DRY_RUN=false
-```
-
-手动测试：
+Run focused safety tests while changing universe, scheduling, or persistence behavior:
 
 ```bash
-python scripts/run_get_exdividend_date.py --dry-run
+python -m pytest -q \
+  tests/test_fixed_universe.py \
+  tests/test_universe_validation.py \
+  tests/test_trading_calendar.py \
+  tests/test_scheduler.py \
+  tests/test_idempotency.py
 ```
 
-## 9. Earnings Intelligence
+A useful replay regression contains explicit timestamps and expected cutoff-visible bars, quotes, benchmarks, news, decisions, scores, gates, and reason codes. Test at least:
 
-Earnings intelligence 是 batch workflow，不是实时 watcher。FMP 用于 earnings calendar、
-analyst estimates、financial/price data；Alpha Vantage `NEWS_SENTIMENT` 用于 earnings news。
-每次命令只运行一次，
-只发布相对 `data/earnings/publish_state.json` 的增量内容，然后退出。
+- A valid opening breakout and a valid short/breakdown setup.
+- Failed breakouts, failed gaps, wide spreads, stale or missing data, and excessive extension.
+- Sector/market conflict, ties and deterministic ordering, `NO_TRADE`, weekends, holidays, early closes, DST transitions, late starts, duplicate invocations, and restart recovery.
+- Proof that a symbol outside the fixed 30 cannot enter through snapshots, replay files, RSS, or provider responses.
 
-主要输出目录：
+Replay output should be byte/logically stable for identical fixture, configuration, date, cutoff, and strategy version, apart from explicitly documented runtime metadata.
 
-```text
-data/earnings/
-  calendar/
-  previews/
-  post_release/
-  market_reaction/
-  media/
-  notifications/
-  logs/
-  publish_state.json
-```
+## Backtesting responsibly
 
-常用命令：
+Replay is the foundation for a backtest, but a passing fixture is not a performance study. A defensible fixed-universe evaluation should:
+
+1. Archive point-in-time quotes, trades/bars, benchmark data, corporate actions, and allowable news for every cutoff. Do not substitute today's metadata for historical metadata.
+2. Freeze and retain the universe and configuration snapshot used on each date. Report survivorship and selection bias explicitly; do not claim full-market coverage.
+3. Run the three stages chronologically, excluding all post-cutoff evidence and preserving `NO_TRADE`, missing-data, and unavailable-symbol days.
+4. Separate development, validation, and out-of-sample periods. Avoid tuning thresholds on the same dates used for reported results.
+5. Model spread, configured slippage, gaps through stops, partial/no fills, halts, fees, and data delay. The built-in entry plan does not simulate execution.
+6. Report sample size, coverage, rejected setups, turnover, sector concentration, drawdowns, uncertainty, and sensitivity to costs and thresholds—not only winning examples.
+7. Keep replay artifacts and strategy versions so another operator can reproduce the result.
+
+Historical performance, replay consistency, and a high score do not guarantee future returns.
+
+## Periodic universe review
+
+`review_fixed_universe.py` is intentionally advisory. It can evaluate recent dollar volume, regular/premarket spreads, data completeness, premarket-filter frequency, opening-watchlist frequency, opening-session dollar volume, and ATR range, then label each current member `KEEP`, `REVIEW`, or `POSSIBLE_REPLACEMENT`.
+
+If the selected data adapter has no retained history for filter-pass or watchlist frequency, those fields are reported as unavailable and the name is conservatively marked for review; missing history is never treated as a perfect record.
+
+It does not search the market for substitutes and cannot mutate configuration. If a human approves a change, document the reason, update the explicit symbol and ETF mappings, increment the strategy version, rerun validation, and treat results before and after the change as different strategy vintages.
+
+## Legacy earnings and ex-dividend utilities
+
+The repository retains older earnings and ex-dividend research utilities for compatibility. They are not stages of the fixed-30 workflow. They may use different universes, discovery logic, storage, schedules, and assumptions, so their symbols and outputs must never be merged into fixed-30 candidates, reports, replay datasets, or performance claims.
+
+They are disabled from the default Compose startup and isolated behind `legacy-research`:
 
 ```bash
-python -m earnings_system.cli scan-earnings-calendar --days 7 --dry-run
-python -m earnings_system.cli run-morning-earnings-report
-python -m earnings_system.cli run-pre-close-amc-report
-python -m earnings_system.cli run-post-market-earnings-report
-python -m earnings_system.cli run-daily-earnings-workflow
+docker compose --profile legacy-research up -d \
+  exdividend-research earnings-research
 ```
 
-Docker scheduler：
+Their scheduler entry points are `scripts/run_daily_exdividend_scheduler.py` and `scripts/run_daily_earnings_scheduler.py`. Operate, test, and disclose them as separate research systems.
 
-```bash
-docker compose up -d earnings-scheduler
-docker compose logs -f earnings-scheduler
-```
+## Final safety notes
 
-`earnings-scheduler` 会在每个美股交易日按下面时间触发现有 CLI 命令，并用
-`data/earnings/.scheduler/` 下的 `.done` 文件避免容器重启后重复发送：
-
-```text
-05:30 PT  run-morning-earnings-report
-12:45 PT  run-pre-close-amc-report
-15:30 PT  run-post-market-earnings-report
-```
-
-如果你想用 cron 或外部 scheduler，也可以直接触发上面的 one-shot CLI 命令。
-`EARNINGS_TEST_RUN_ON_START=true` 只用于启动健康检查；它会立即运行一次
-`run-daily-earnings-workflow`，但不会占用当天的 scheduled slots。
-
-关键配置：
-
-```text
-ALPHAVANTAGE_API_KEY=
-DISCORD_EARNINGS_WEBHOOK_URL=
-EARNINGS_LOOKAHEAD_DAYS=7
-EARNINGS_UNIVERSE_MODE=calendar_all_limited
-EARNINGS_WATCHLIST_SYMBOLS=NVDA,AMD,AAPL,MSFT,AMZN,META,GOOGL,TSLA
-EARNINGS_MAX_DEEP_ANALYSIS_CANDIDATES=25
-EARNINGS_NEWS_LIMIT=20
-EARNINGS_NEWS_DIGEST_MAX_ITEMS=3
-EARNINGS_SCHEDULER_POLL_SECONDS=30
-EARNINGS_TEST_RUN_ON_START=false
-EARNINGS_SKIP_DISCORD=false
-EARNINGS_OUTPUT_DIR=data/earnings
-```
-
-## 10. Monitor Watchlist
-
-查看当前 watchlist：
-
-```bash
-curl -H "X-Admin-Token: $WATCHLIST_ADMIN_TOKEN" \
-  http://127.0.0.1:8765/watchlist
-```
-
-手动添加 symbol：
-
-```bash
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -H "X-Admin-Token: $WATCHLIST_ADMIN_TOKEN" \
-  -d '{"symbol":"US.NVDA"}' \
-  http://127.0.0.1:8765/watchlist/add
-```
-
-Discord 手机端命令：
-
-```text
-/watch list
-/watch status
-/watch period period: 1m
-/watch period period: 3m
-/watch period period: 5m
-/watch add symbol: NVDA
-/watch add_many symbols: SPY QQQ NVDA AMD
-/watch remove symbol: TSLA
-/watch set symbols: SPY QQQ NVDA AMD
-/watch clear
-```
-
-Monitor 支持 `1m`、`3m`、`5m` 三种 K 线周期。切换周期时，monitor 会重新订阅对应 Futu K 线并重建当前 watchlist 的缓存 K 线。
-
-当前硬编码 breakout lookback：
-
-```text
-1m -> 20 bars，约 20 分钟
-3m ->  8 bars，约 24 分钟
-5m ->  6 bars，约 30 分钟
-```
-
-切换周期时，以下参数会一起切换：
-
-```text
-1m -> compression 4 bars, EMA exit 9 bars, stall 3 bars, max one-bar return 1.0%
-3m -> compression 2 bars, EMA exit 5 bars, stall 2 bars, max one-bar return 1.5%
-5m -> compression 2 bars, EMA exit 3 bars, stall 2 bars, max one-bar return 2.0%
-```
-
-## 11. 夜间/非交易时段测试
-
-只测试 AI -> monitor watchlist 同步，不打开夜间实时信号：
-
-```bash
-docker compose exec premarket-scheduler python scripts/run_premarket.py \
-  --dry-run \
-  --force-run \
-  --allow-non-trading-day-test \
-  --send-to-monitor
-```
-
-验证 watchlist：
-
-```bash
-set -a
-source .env
-set +a
-curl -H "X-Admin-Token: $WATCHLIST_ADMIN_TOKEN" \
-  http://127.0.0.1:8765/watchlist
-```
-
-如果要临时测试 monitor 夜间实时信号，在 `.env` 中改：
-
-```env
-MONITOR_TEST_MODE=true
-MONITOR_EXTENDED_TIME=true
-MONITOR_FUTU_SESSION=ALL
-```
-
-然后重启 monitor：
-
-```bash
-docker compose up -d --force-recreate monitor
-```
-
-测试完改回：
-
-```env
-MONITOR_TEST_MODE=false
-MONITOR_EXTENDED_TIME=false
-MONITOR_FUTU_SESSION=RTH
-```
-
-## 11. 测试
-
-```bash
-.venv/bin/python -m pytest -q
-```
-
-当前测试覆盖：
-
-- 技术指标
-- 市场环境评分
-- 候选股评分
-- evidence/report 校验
-- Futu mock client 与 session 配置
-- RSS ticker 匹配与错误兜底
-- premarket/single-stock dry-run 脚本
-- monitor admin token 安全检查
-
-## 12. 设计原则
-
-本项目采用：
-
-```text
-确定性数据管道 -> evidence pack -> LLM 结构化分析 -> 输出校验 -> Discord/monitor
-```
-
-不要让 LLM 自己决定事实。行情、新闻、价位、技术指标优先由代码生成，LLM 只负责基于 evidence pack 做中文结构化表达。
-
-## 13. 安全与风险
-
-- 不要提交 `.env`。
-- `WATCHLIST_ADMIN_TOKEN` 必须设置并妥善保存。
-- Admin API 保持绑定 `127.0.0.1`。
-- 如果 webhook、bot token、OpenAI key 曾被粘贴到聊天或公开位置，请立即轮换。
-- 本项目仅用于投资研究与交易观察辅助。
-- 不构成投资建议。
-- 不保证行情、新闻、模型输出完全准确。
-- 任何交易决策应由你自行判断。
+- Validate timestamps, entitlement status, corporate actions, and the original source before acting on any output.
+- Treat missing data as uncertainty, not as zero, neutral, or permission to bypass a gate.
+- A score is a deterministic prioritization aid, not a probability of profit.
+- `CONFIRMED` describes rule satisfaction at one recorded cutoff; it is not an order recommendation.
+- Human review, independent risk controls, and an execution system outside this repository would still be required for any real trading decision.

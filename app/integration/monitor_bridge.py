@@ -26,10 +26,8 @@ def extract_recommended_symbols(
     market_prefix: str = "US",
 ) -> List[str]:
     """
-    Deterministically extract the symbols the AI premarket assistant is expected
-    to discuss: the top A/B-tier candidates already selected by the evidence pack.
-
-    This avoids brittle parsing of LLM text.
+    Deterministically extract already-classified symbols from a persisted
+    evidence object. Text reports are never parsed for strategy decisions.
     """
     result: List[str] = []
     seen = set()

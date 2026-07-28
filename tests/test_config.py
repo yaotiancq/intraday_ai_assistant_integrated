@@ -7,7 +7,6 @@ def test_load_settings_reads_futu_extended_time(tmp_path: Path):
     env = tmp_path / '.env'
     env.write_text(
         f'''
-OPENAI_API_KEY=
 DATA_DIR={tmp_path / 'data'}
 FUTU_EXTENDED_TIME=false
 ''',

@@ -3,7 +3,7 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=utf-8
 ENV PYTHONUTF8=1
-ENV TZ=America/Los_Angeles
+ENV TZ=America/New_York
 ENV PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
@@ -19,10 +19,10 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt
 
 COPY app /app/app
+COPY config /app/config
 COPY earnings_system /app/earnings_system
-COPY ops /app/ops
 COPY scripts /app/scripts
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/output/runs
 
-CMD ["python", "scripts/run_premarket.py", "--dry-run"]
+CMD ["python", "scripts/run_market_scheduler.py"]

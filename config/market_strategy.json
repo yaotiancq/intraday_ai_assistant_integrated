@@ -1,0 +1,176 @@
+{
+  "strategy_version": "fixed-us-large-cap-opening-v1",
+  "universe": {
+    "mode": "fixed",
+    "stocks": [
+      {"symbol": "AAPL", "company_name": "Apple", "sector": "Information Technology", "sector_zh": "信息技术", "industry": "Technology Hardware", "comparison_etfs": ["XLK", "QQQ"]},
+      {"symbol": "MSFT", "company_name": "Microsoft", "sector": "Information Technology", "sector_zh": "信息技术", "industry": "Software", "comparison_etfs": ["XLK", "IGV", "QQQ"]},
+      {"symbol": "NVDA", "company_name": "NVIDIA", "sector": "Information Technology", "sector_zh": "信息技术", "industry": "Semiconductors", "comparison_etfs": ["SMH", "SOXX", "XLK", "QQQ"]},
+      {"symbol": "AMD", "company_name": "Advanced Micro Devices", "sector": "Information Technology", "sector_zh": "信息技术", "industry": "Semiconductors", "comparison_etfs": ["SMH", "SOXX", "XLK", "QQQ"]},
+      {"symbol": "AVGO", "company_name": "Broadcom", "sector": "Information Technology", "sector_zh": "信息技术", "industry": "Semiconductors", "comparison_etfs": ["SMH", "SOXX", "XLK", "QQQ"]},
+      {"symbol": "TSM", "company_name": "Taiwan Semiconductor Manufacturing", "sector": "Information Technology", "sector_zh": "信息技术", "industry": "Semiconductors", "comparison_etfs": ["SMH", "SOXX", "QQQ"]},
+      {"symbol": "GOOGL", "company_name": "Alphabet", "sector": "Communication Services", "sector_zh": "通信服务", "industry": "Interactive Media", "comparison_etfs": ["XLC", "QQQ"]},
+      {"symbol": "META", "company_name": "Meta Platforms", "sector": "Communication Services", "sector_zh": "通信服务", "industry": "Interactive Media", "comparison_etfs": ["XLC", "QQQ"]},
+      {"symbol": "NFLX", "company_name": "Netflix", "sector": "Communication Services", "sector_zh": "通信服务", "industry": "Entertainment", "comparison_etfs": ["XLC", "QQQ"]},
+      {"symbol": "AMZN", "company_name": "Amazon", "sector": "Consumer Discretionary", "sector_zh": "非必需消费", "industry": "Broadline Retail", "comparison_etfs": ["XLY", "QQQ"]},
+      {"symbol": "TSLA", "company_name": "Tesla", "sector": "Consumer Discretionary", "sector_zh": "非必需消费", "industry": "Automobiles", "comparison_etfs": ["XLY", "QQQ"]},
+      {"symbol": "HD", "company_name": "Home Depot", "sector": "Consumer Discretionary", "sector_zh": "非必需消费", "industry": "Specialty Retail", "comparison_etfs": ["XLY"]},
+      {"symbol": "MCD", "company_name": "McDonald's", "sector": "Consumer Discretionary", "sector_zh": "非必需消费", "industry": "Restaurants", "comparison_etfs": ["XLY"]},
+      {"symbol": "JPM", "company_name": "JPMorgan Chase", "sector": "Financials", "sector_zh": "金融", "industry": "Diversified Banks", "comparison_etfs": ["XLF"]},
+      {"symbol": "BAC", "company_name": "Bank of America", "sector": "Financials", "sector_zh": "金融", "industry": "Diversified Banks", "comparison_etfs": ["XLF"]},
+      {"symbol": "C", "company_name": "Citigroup", "sector": "Financials", "sector_zh": "金融", "industry": "Diversified Banks", "comparison_etfs": ["XLF"]},
+      {"symbol": "GS", "company_name": "Goldman Sachs", "sector": "Financials", "sector_zh": "金融", "industry": "Capital Markets", "comparison_etfs": ["XLF"]},
+      {"symbol": "LLY", "company_name": "Eli Lilly", "sector": "Health Care", "sector_zh": "医疗保健", "industry": "Pharmaceuticals", "comparison_etfs": ["XLV"]},
+      {"symbol": "UNH", "company_name": "UnitedHealth Group", "sector": "Health Care", "sector_zh": "医疗保健", "industry": "Managed Health Care", "comparison_etfs": ["XLV"]},
+      {"symbol": "JNJ", "company_name": "Johnson & Johnson", "sector": "Health Care", "sector_zh": "医疗保健", "industry": "Pharmaceuticals", "comparison_etfs": ["XLV"]},
+      {"symbol": "CAT", "company_name": "Caterpillar", "sector": "Industrials", "sector_zh": "工业", "industry": "Machinery", "comparison_etfs": ["XLI"]},
+      {"symbol": "GE", "company_name": "GE Aerospace", "sector": "Industrials", "sector_zh": "工业", "industry": "Aerospace", "comparison_etfs": ["XLI", "ITA"]},
+      {"symbol": "BA", "company_name": "Boeing", "sector": "Industrials", "sector_zh": "工业", "industry": "Aerospace", "comparison_etfs": ["XLI", "ITA"]},
+      {"symbol": "XOM", "company_name": "Exxon Mobil", "sector": "Energy", "sector_zh": "能源", "industry": "Integrated Oil and Gas", "comparison_etfs": ["XLE"]},
+      {"symbol": "CVX", "company_name": "Chevron", "sector": "Energy", "sector_zh": "能源", "industry": "Integrated Oil and Gas", "comparison_etfs": ["XLE"]},
+      {"symbol": "WMT", "company_name": "Walmart", "sector": "Consumer Staples", "sector_zh": "必需消费", "industry": "Consumer Staples Retail", "comparison_etfs": ["XLP"]},
+      {"symbol": "COST", "company_name": "Costco", "sector": "Consumer Staples", "sector_zh": "必需消费", "industry": "Consumer Staples Retail", "comparison_etfs": ["XLP"]},
+      {"symbol": "LIN", "company_name": "Linde", "sector": "Materials", "sector_zh": "原材料", "industry": "Industrial Gases", "comparison_etfs": ["XLB"]},
+      {"symbol": "NEE", "company_name": "NextEra Energy", "sector": "Utilities", "sector_zh": "公用事业", "industry": "Electric Utilities", "comparison_etfs": ["XLU"]},
+      {"symbol": "PLD", "company_name": "Prologis", "sector": "Real Estate", "sector_zh": "房地产", "industry": "Industrial REITs", "comparison_etfs": ["XLRE"]}
+    ]
+  },
+  "benchmarks": {
+    "trade_signals_enabled": false,
+    "broad_market": [
+      {"symbol": "SPY", "name_en": "S&P 500 Broad Market", "name_zh": "标普500大盘"},
+      {"symbol": "QQQ", "name_en": "Nasdaq-100 Growth", "name_zh": "纳斯达克100成长股"},
+      {"symbol": "IWM", "name_en": "Small-Cap Equities", "name_zh": "小盘股"},
+      {"symbol": "DIA", "name_en": "Dow Jones Large Caps", "name_zh": "道琼斯大盘股"}
+    ],
+    "sectors": [
+      {"symbol": "XLK", "name_en": "Technology", "name_zh": "科技"},
+      {"symbol": "XLC", "name_en": "Communication Services", "name_zh": "通信服务"},
+      {"symbol": "XLY", "name_en": "Consumer Discretionary", "name_zh": "非必需消费"},
+      {"symbol": "XLP", "name_en": "Consumer Staples", "name_zh": "必需消费"},
+      {"symbol": "XLE", "name_en": "Energy", "name_zh": "能源"},
+      {"symbol": "XLF", "name_en": "Financials", "name_zh": "金融"},
+      {"symbol": "XLV", "name_en": "Health Care", "name_zh": "医疗保健"},
+      {"symbol": "XLI", "name_en": "Industrials", "name_zh": "工业"},
+      {"symbol": "XLB", "name_en": "Materials", "name_zh": "原材料"},
+      {"symbol": "XLU", "name_en": "Utilities", "name_zh": "公用事业"},
+      {"symbol": "XLRE", "name_en": "Real Estate", "name_zh": "房地产"}
+    ],
+    "industries": [
+      {"symbol": "SMH", "name_en": "Semiconductors", "name_zh": "半导体"},
+      {"symbol": "SOXX", "name_en": "Semiconductors", "name_zh": "半导体"},
+      {"symbol": "IGV", "name_en": "Software", "name_zh": "软件"},
+      {"symbol": "ITA", "name_en": "Aerospace and Defense", "name_zh": "航空航天与国防"}
+    ],
+    "volatility_proxy": "VIX"
+  },
+  "scheduler": {
+    "enabled": true,
+    "timezone": "America/New_York",
+    "skip_non_trading_days": true,
+    "prevent_duplicate_runs": true,
+    "maximum_late_start_minutes": 10,
+    "configured_non_trading_days": [],
+    "stages": {
+      "universe_validation": {"enabled": true, "time": "08:20"},
+      "premarket": {"enabled": true, "time": "08:45", "evidence_cutoff": "08:45"},
+      "opening_5m": {"enabled": true, "time": "09:35", "evidence_cutoff": "09:35", "confirmation_window_minutes": 5},
+      "opening_15m": {"enabled": true, "time": "09:45", "evidence_cutoff": "09:45", "confirmation_window_minutes": 15}
+    }
+  },
+  "premarket_filters": {
+    "minimum_price": 5.0,
+    "minimum_average_daily_dollar_volume": 50000000,
+    "minimum_premarket_dollar_volume": 750000,
+    "maximum_premarket_spread_bps": 35,
+    "minimum_premarket_relative_volume": 0.8,
+    "minimum_absolute_gap_percent": 0.30,
+    "maximum_absolute_gap_percent": 15.0,
+    "event_gap_percent": 2.0,
+    "event_relative_volume": 1.5,
+    "minimum_relative_strength_percent": 0.20
+  },
+  "premarket_scoring": {
+    "weights": {
+      "liquidity": 10,
+      "premarket_relative_volume": 13,
+      "gap_quality": 10,
+      "catalyst_quality": 9,
+      "technical_location": 14,
+      "relative_strength": 16,
+      "sector_alignment": 11,
+      "market_regime_alignment": 8,
+      "volatility_quality": 5,
+      "spread_quality": 4
+    }
+  },
+  "candidate_selection": {
+    "maximum_premarket_candidates": 12,
+    "maximum_opening_watchlist": 8,
+    "maximum_candidates_per_sector": 3,
+    "minimum_premarket_score": 55
+  },
+  "opening_scoring": {
+    "weights": {
+      "opening_structure": 17,
+      "vwap_confirmation": 14,
+      "volume_confirmation": 14,
+      "relative_strength": 15,
+      "market_alignment": 8,
+      "sector_alignment": 8,
+      "gap_retention": 7,
+      "price_action_quality": 10,
+      "liquidity_and_spread": 4,
+      "extension_quality": 3
+    },
+    "penalties": {
+      "failed_breakout": 25,
+      "failed_breakdown": 25,
+      "failed_gap": 20,
+      "weak_opening_volume": 10,
+      "market_conflict": 10,
+      "sector_conflict": 7,
+      "excessive_extension": 12,
+      "poor_close_location": 7,
+      "wide_spread": 15
+    }
+  },
+  "combined_scoring": {"premarket_weight": 0.40, "opening_weight": 0.60},
+  "risk_gates": {
+    "maximum_data_age_seconds": 90,
+    "maximum_spread_bps": 30,
+    "minimum_price": 5.0,
+    "minimum_average_daily_dollar_volume": 50000000,
+    "minimum_premarket_dollar_volume": 750000,
+    "minimum_opening_relative_volume": 1.0,
+    "maximum_opening_range_atr_ratio": 0.8,
+    "minimum_opening_range_atr_ratio": 0.05,
+    "maximum_gap_atr_ratio": 2.5,
+    "maximum_entry_extension_atr": 0.35,
+    "maximum_breakout_extension_atr": 0.25,
+    "minimum_reward_risk_ratio": 1.5,
+    "minimum_required_bar_coverage": 1.0,
+    "directional_conflict_max_difference": 8.0
+  },
+  "risk_management": {
+    "maximum_risk_per_trade_dollars": 150,
+    "maximum_position_notional_dollars": 10000,
+    "estimated_slippage_bps": 5
+  },
+  "news": {
+    "maximum_age_hours": 48,
+    "credible_domains": ["reuters.com", "apnews.com", "sec.gov", "investor.apple.com", "finance.yahoo.com", "marketwatch.com"],
+    "catalyst_keywords": {
+      "EARNINGS": ["earnings", "quarterly results", "eps", "revenue"],
+      "GUIDANCE": ["guidance", "outlook", "forecast", "raises forecast", "cuts forecast"],
+      "ANALYST_ACTION": ["upgrade", "downgrade", "price target", "initiates coverage"],
+      "M_AND_A": ["acquire", "acquisition", "merger", "takeover", "buyout"],
+      "PRODUCT": ["launches", "new product", "approval", "release"],
+      "REGULATORY": ["sec", "fda", "regulator", "antitrust", "investigation"],
+      "MACRO": ["federal reserve", "inflation", "jobs report", "interest rate"],
+      "SECTOR_NEWS": ["sector", "industry", "semiconductor", "oil prices"],
+      "COMPANY_NEWS": ["announces", "appoints", "contract", "partnership"]
+    }
+  },
+  "output": {"root": "output/runs"}
+}

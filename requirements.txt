@@ -1,7 +1,6 @@
 feedparser
 futu-api
 numpy
-openai
 pandas
 pandas_market_calendars
 pytest

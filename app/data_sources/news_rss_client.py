@@ -38,6 +38,25 @@ class NewsRSSClient:
         urls = [url.strip() for url in self.urls if url and url.strip()]
         if not urls:
             return []
+        if not allowed:
+            # Fail closed. An empty allowlist previously allowed arbitrary explicit
+            # tickers from a feed to enter candidate construction.
+            return [{
+                'title': 'RSS fetch skipped: fixed-universe allowlist is empty',
+                'source': 'configuration',
+                'url': '',
+                'published_at': None,
+                'retrieved_at': datetime.now(timezone.utc).isoformat(),
+                'summary': 'News acquisition requires a non-empty configured stock allowlist.',
+                'related_symbols': [],
+                'event_type': 'warning',
+                'sentiment': 'neutral',
+                'credibility': 'configuration',
+                'confidence': 'high',
+                'news_score': 0,
+                'is_error': True,
+                'reason_codes': ['EMPTY_FIXED_UNIVERSE_ALLOWLIST'],
+            }]
 
         if len(urls) == 1:
             return self._fetch_url(urls[0], allowed)
@@ -124,6 +143,21 @@ SYMBOL_ALIASES = {
     'GOOGL': ['alphabet', 'google'],
     'META': ['meta platforms', 'facebook'],
     'TSLA': ['tesla'],
+    'NFLX': ['netflix'],
+    'HD': ['home depot'],
+    'MCD': ["mcdonald's", 'mcdonalds'],
+    'JPM': ['jpmorgan', 'jp morgan'],
+    'BAC': ['bank of america'],
+    'C': ['citigroup', 'citibank'],
+    'GS': ['goldman sachs'],
+    'LLY': ['eli lilly'],
+    'UNH': ['unitedhealth', 'unitedhealth group'],
+    'CAT': ['caterpillar'],
+    'GE': ['ge aerospace', 'general electric'],
+    'BA': ['boeing'],
+    'LIN': ['linde'],
+    'NEE': ['nextera energy'],
+    'PLD': ['prologis'],
     # Software / cloud
     'CRM': ['salesforce'],
     'ORCL': ['oracle'],

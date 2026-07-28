@@ -1,48 +1,103 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Set
+from collections import Counter
+from typing import Any, Iterable
 
 
 def build_candidates(
-    core_symbols: Iterable[str],
-    news_items: List[Dict[str, Any]],
-    snapshots: List[Dict[str, Any]],
+    configured_stock_symbols: Iterable[str],
+    news_items: list[dict[str, Any]],
+    snapshots: list[dict[str, Any]],
     min_abs_move_pct: float = 1.5,
-) -> Dict[str, Any]:
-    core = {s.upper() for s in core_symbols}
-    news_symbols: Set[str] = set()
-    for n in news_items:
-        if n.get('is_error'):
+) -> dict[str, Any]:
+    """Return configured stocks only; news and movers can only annotate them.
+
+    The former implementation used a union and could promote arbitrary RSS
+    tickers and benchmark ETFs into the tradable candidate set. This function
+    intentionally fails closed: observations outside the allowlist are recorded
+    as ignored and can never become a stock candidate.
+    """
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in configured_stock_symbols:
+        symbol = str(value).strip().upper()
+        if symbol and symbol not in seen:
+            seen.add(symbol)
+            ordered.append(symbol)
+    allowed = set(ordered)
+
+    news_symbols: set[str] = set()
+    ignored_news_symbols: set[str] = set()
+    for item in news_items:
+        if item.get("is_error"):
             continue
-        for s in n.get('related_symbols', []):
-            news_symbols.add(s.upper())
+        for value in item.get("related_symbols", []):
+            symbol = str(value).strip().upper()
+            if symbol in allowed:
+                news_symbols.add(symbol)
+            elif symbol:
+                ignored_news_symbols.add(symbol)
 
-    movers: Set[str] = set()
-    for s in snapshots:
+    movers: set[str] = set()
+    ignored_snapshot_symbols: set[str] = set()
+    for snapshot in snapshots:
+        symbol = str(snapshot.get("symbol", "")).strip().upper()
+        if symbol not in allowed:
+            if symbol:
+                ignored_snapshot_symbols.add(symbol)
+            continue
         try:
-            pct = float(s.get('change_pct') or 0)
-        except Exception:
-            pct = 0
-        if abs(pct) >= min_abs_move_pct:
-            movers.add(str(s.get('symbol', '')).upper())
+            change = float(snapshot.get("effective_change_pct", snapshot.get("change_pct")) or 0)
+        except (TypeError, ValueError):
+            change = 0.0
+        if abs(change) >= min_abs_move_pct:
+            movers.add(symbol)
 
-    symbols = sorted(core | news_symbols | movers)
-    reasons = {s: [] for s in symbols}
-    for s in core:
-        if s in reasons:
-            reasons[s].append('core_watchlist')
-    for s in news_symbols:
-        reasons.setdefault(s, []).append('news_catalyst')
-    for s in movers:
-        reasons.setdefault(s, []).append('premarket_mover')
+    reasons: dict[str, list[str]] = {}
+    for symbol in ordered:
+        values = ["fixed_universe"]
+        if symbol in news_symbols:
+            values.append("news_catalyst")
+        if symbol in movers:
+            values.append("premarket_mover")
+        reasons[symbol] = values
 
     return {
-        'symbols': symbols,
-        'reason': reasons,
-        'counts': {
-            'core': len(core),
-            'news': len(news_symbols),
-            'movers': len(movers),
-            'total': len(symbols),
+        "symbols": ordered,
+        "reason": reasons,
+        "counts": {
+            "configured": len(ordered),
+            "news_annotations": len(news_symbols),
+            "mover_annotations": len(movers),
+            "total": len(ordered),
         },
+        "ignored_unconfigured_symbols": sorted(ignored_news_symbols | ignored_snapshot_symbols),
+        "containment_enforced": True,
     }
+
+
+def narrow_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    minimum_score: float,
+    maximum_candidates: int,
+    maximum_per_sector: int,
+) -> list[dict[str, Any]]:
+    """Deterministically rank candidates without filling unused capacity."""
+
+    ranked = sorted(
+        (item for item in candidates if float(item.get("premarket_score", 0) or 0) >= minimum_score),
+        key=lambda item: (-float(item.get("premarket_score", 0) or 0), str(item.get("symbol", ""))),
+    )
+    selected: list[dict[str, Any]] = []
+    sector_counts: Counter[str] = Counter()
+    for item in ranked:
+        sector = str(item.get("sector", "UNKNOWN"))
+        if sector_counts[sector] >= maximum_per_sector:
+            continue
+        selected.append(item)
+        sector_counts[sector] += 1
+        if len(selected) >= maximum_candidates:
+            break
+    return selected

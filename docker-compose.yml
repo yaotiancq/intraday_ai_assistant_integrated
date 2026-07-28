@@ -1,13 +1,30 @@
 services:
-  monitor:
+  market-scheduler:
     build: .
-    image: intraday-ai-assistant-integrated:latest
-    container_name: futu-monitor
+    image: intraday-market-analysis:latest
+    container_name: market-scheduler
     network_mode: host
     env_file:
       - .env
+    environment:
+      TZ: America/New_York
+      MARKET_CONFIG_PATH: /app/config/market_strategy.json
+      MARKET_OUTPUT_DIR: /app/output/runs
     volumes:
+      - ./output:/app/output
       - ./data:/app/data
+      - ./config:/app/config:ro
+    command: python scripts/run_market_scheduler.py
+    restart: unless-stopped
+
+  monitor:
+    build: .
+    image: intraday-market-analysis:latest
+    container_name: futu-monitor
+    profiles: ["monitor"]
+    network_mode: host
+    env_file:
+      - .env
     command:
       - python
       - scripts/run_realtime_monitor.py
@@ -16,65 +33,48 @@ services:
       - --port
       - ${FUTU_PORT:-11111}
       - --symbols
-      - ${MONITOR_WATCH_SYMBOLS:-${WATCH_SYMBOLS:-US.SPY,US.QQQ,US.NVDA}}
+      - ${MONITOR_WATCH_SYMBOLS:-US.SPY,US.QQQ,US.NVDA}
       - --max-symbols
-      - ${MONITOR_MAX_SYMBOLS:-${MAX_SYMBOLS:-20}}
+      - ${MONITOR_MAX_SYMBOLS:-8}
       - --skip-snapshot-filter
       - --admin-host
-      - ${MONITOR_ADMIN_HOST:-${ADMIN_HOST:-127.0.0.1}}
+      - ${MONITOR_ADMIN_HOST:-127.0.0.1}
       - --admin-port
-      - ${MONITOR_ADMIN_PORT:-${ADMIN_PORT:-8765}}
+      - ${MONITOR_ADMIN_PORT:-8765}
     restart: unless-stopped
 
   discord-bot:
-    image: intraday-ai-assistant-integrated:latest
+    image: intraday-market-analysis:latest
     container_name: discord-watchlist-bot
+    profiles: ["monitor"]
     network_mode: host
     env_file:
       - .env
-    command:
-      - python
-      - scripts/discord_watchlist_bot.py
+    command: python scripts/discord_watchlist_bot.py
     depends_on:
       - monitor
     restart: unless-stopped
 
-  premarket-scheduler:
-    image: intraday-ai-assistant-integrated:latest
-    container_name: premarket-scheduler
+  exdividend-research:
+    image: intraday-market-analysis:latest
+    container_name: exdividend-research
+    profiles: ["legacy-research"]
     network_mode: host
     env_file:
       - .env
-    command:
-      - bash
-      - /app/ops/premarket_loop.sh
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-    restart: unless-stopped
-
-  exdividend-scheduler:
-    image: intraday-ai-assistant-integrated:latest
-    container_name: exdividend-scheduler
-    network_mode: host
-    env_file:
-      - .env
-    command:
-      - python
-      - scripts/run_daily_exdividend_scheduler.py
+    command: python scripts/run_daily_exdividend_scheduler.py
     volumes:
       - ./data:/app/data
     restart: unless-stopped
 
-  earnings-scheduler:
-    image: intraday-ai-assistant-integrated:latest
-    container_name: earnings-scheduler
+  earnings-research:
+    image: intraday-market-analysis:latest
+    container_name: earnings-research
+    profiles: ["legacy-research"]
     network_mode: host
     env_file:
       - .env
-    command:
-      - python
-      - scripts/run_daily_earnings_scheduler.py
+    command: python scripts/run_daily_earnings_scheduler.py
     volumes:
       - ./data:/app/data
     restart: unless-stopped

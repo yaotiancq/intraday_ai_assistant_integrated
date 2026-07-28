@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 import os
 from typing import Optional
+
+from app.scheduling.trading_calendar import TradingCalendar
 
 
 def _as_bool(value: str | None, default: bool = False) -> bool:
@@ -23,20 +25,12 @@ class TradingDayDecision:
 
 
 def is_us_trading_day(d: date) -> bool:
-    """Return whether NYSE is scheduled to trade on the given date."""
-    try:
-        import pandas_market_calendars as mcal
-
-        nyse = mcal.get_calendar("NYSE")
-        sched = nyse.schedule(start_date=d.isoformat(), end_date=d.isoformat())
-        return not sched.empty
-    except Exception:
-        # Fallback only for resilience. pandas_market_calendars should be installed in Docker.
-        return d.weekday() < 5
+    """Compatibility wrapper around the centralized NYSE calendar."""
+    return TradingCalendar().session(d).is_trading_day
 
 
 def should_run_trading_day_task(
-    tz_name: str = "America/Los_Angeles",
+    tz_name: str = "America/New_York",
     force_run: bool = False,
     allow_non_trading_day_test: bool = False,
     now: Optional[datetime] = None,
